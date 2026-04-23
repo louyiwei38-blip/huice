@@ -1,0 +1,9 @@
+{
+  "name": "huice",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "undici": "^6.21.0"
+  }
+}
