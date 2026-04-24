@@ -2,8 +2,9 @@
 
 const axios = require('axios');
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT_ID   = process.env.TELEGRAM_CHAT_ID;
+const BOT_TOKEN      = process.env.TELEGRAM_BOT_TOKEN;
+const CHAT_ID        = process.env.TELEGRAM_CHAT_ID;
+const WECHAT_SENDKEY = process.env.WECHAT_SEND_KEY;
 
 function toBeijing(date) {
   return new Date(date).toLocaleString('zh-CN', {
@@ -29,6 +30,17 @@ async function sendMessage(text) {
   }
 }
 
+async function sendWechat(title, content) {
+  if (!WECHAT_SENDKEY) return;
+  try {
+    await axios.post(`https://sctapi.ftqq.com/${WECHAT_SENDKEY}.send`, null, {
+      params: { title, desp: content },
+    });
+  } catch (err) {
+    console.error('[微信] 推送失败:', err.response?.data?.message || err.message);
+  }
+}
+
 async function sendSignal(signal, confidence) {
   const emoji   = signal.direction === 'LONG' ? '🟢' : '🔴';
   const dirText = signal.direction === 'LONG' ? '做多' : '做空';
@@ -48,7 +60,16 @@ async function sendSignal(signal, confidence) {
     `⏱ 策略: 持仓1小时后平仓`,
   ].join('\n');
 
-  await sendMessage(text);
+  const wechatTitle   = `BTCUSDT ${dirText}信号 @ ${signal.price.toFixed(2)}`;
+  const wechatContent = [
+    `**原因**: ${signal.reason}`,
+    `**周期**: ${tfText}`,
+    `**时间**: ${toBeijing(signal.time)}`,
+    confidence ? `**置信度**: ${confidence.stars} ${confidence.level} | 历史胜率 ${(confidence.winRate * 100).toFixed(1)}% (近${confidence.total}次)` : '',
+    `**策略**: 持仓1小时后平仓`,
+  ].filter(Boolean).join('\n\n');
+
+  await Promise.all([sendMessage(text), sendWechat(wechatTitle, wechatContent)]);
 }
 
 async function sendDailyReport(stats) {
@@ -65,7 +86,14 @@ async function sendDailyReport(stats) {
     `💵 收益摘要: ${stats.pnlSummary}`,
   ].join('\n');
 
-  await sendMessage(text);
+  const wechatContent = [
+    `**胜率**: ${winRateStr}`,
+    `**交易次数**: ${stats.total}`,
+    `**盈利**: ${stats.wins} 次 | **亏损**: ${stats.losses} 次`,
+    `**收益摘要**: ${stats.pnlSummary}`,
+  ].join('\n\n');
+
+  await Promise.all([sendMessage(text), sendWechat(`BTCUSDT 每日报告 ${date}`, wechatContent)]);
 }
 
 module.exports = { sendSignal, sendDailyReport, sendMessage };
