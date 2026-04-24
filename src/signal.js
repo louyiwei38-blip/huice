@@ -2,7 +2,7 @@
 
 const { getSupportResistance, getTrendlines } = require('./indicators');
 
-const SR_TOLERANCE        = 0.003;   // 0.3%  — support/resistance core zone
+const SR_TOLERANCE        = 0.0005;  // 0.05% — support/resistance core zone
 const TRENDLINE_TOLERANCE = 0.0003;  // 0.03% — trendline touch
 
 /**
