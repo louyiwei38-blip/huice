@@ -108,7 +108,7 @@ async function main() {
     const candles15mAdx = await fetchCandles(SYMBOL, '15m', 200).catch(() => null);
     if (candles15mAdx) {
       const adx     = calculateADX(candles15mAdx);
-      const ranging = isRanging(candles15mAdx, 14, 100);
+      const ranging = isRanging(candles15mAdx, 14, 25);
       const adxStr  = adx !== null ? adx.toFixed(1) : 'N/A';
       if (!ranging) {
         console.log(`[ADX ${adxStr}] 趋势行情，暂停信号检测`);
