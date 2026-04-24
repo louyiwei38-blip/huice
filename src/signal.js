@@ -43,11 +43,11 @@ function checkSignal(candles, timeframe) {
     }
   }
 
-  // 2. Uptrend line → LONG
+  // 2. Uptrend line → SHORT (price rises to upper channel resistance)
   if (trendlines.uptrendLine) {
     const tp = trendlines.uptrendLine.priceAt(lastIdx);
     if (tp > 0 && Math.abs(price - tp) / tp <= TRENDLINE_TOLERANCE) {
-      return _signal('LONG', price, `触及上升趋势线 ${tp.toFixed(2)}`, timeframe, last);
+      return _signal('SHORT', price, `触及上升趋势线 ${tp.toFixed(2)}`, timeframe, last);
     }
   }
 
@@ -58,11 +58,11 @@ function checkSignal(candles, timeframe) {
     }
   }
 
-  // 4. Downtrend line → SHORT
+  // 4. Downtrend line → LONG (price falls to lower channel support)
   if (trendlines.downtrendLine) {
     const tp = trendlines.downtrendLine.priceAt(lastIdx);
     if (tp > 0 && Math.abs(price - tp) / tp <= TRENDLINE_TOLERANCE) {
-      return _signal('SHORT', price, `触及下降趋势线 ${tp.toFixed(2)}`, timeframe, last);
+      return _signal('LONG', price, `触及下降趋势线 ${tp.toFixed(2)}`, timeframe, last);
     }
   }
 
