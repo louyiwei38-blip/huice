@@ -7,6 +7,7 @@ const cron = require('node-cron');
 const { fetchCandles }             = require('./src/data');
 const { checkSignal, SR_TOLERANCE, TRENDLINE_TOLERANCE } = require('./src/signal');
 const { sendSignal, sendDailyReport } = require('./src/notify');
+const { getConfidence, computeWinRates } = require('./src/confidence');
 
 const SYMBOL   = 'BTC/USDT';
 const LOOKBACK = 1000;
@@ -42,7 +43,8 @@ async function checkTimeframe(tf) {
     exitAt     : new Date(signal.time.getTime() + 3600 * 1000),
   });
 
-  await sendSignal(signal);
+  const confidence = await getConfidence(signal).catch(() => null);
+  await sendSignal(signal, confidence);
 }
 
 // ─── Exit Tracker ─────────────────────────────────────────────────────────────
@@ -105,6 +107,9 @@ async function main() {
     await checkTimeframe('1h').catch(e => console.error('[1H 错误]', e.message));
     await processPendingExits().catch(e => console.error('[出场 错误]', e.message));
   };
+
+  // Pre-compute confidence cache in background (non-blocking)
+  computeWinRates().catch(e => console.error('[置信度]', e.message));
 
   // Initial check
   await poll();

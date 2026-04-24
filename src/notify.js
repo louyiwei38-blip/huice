@@ -29,10 +29,14 @@ async function sendMessage(text) {
   }
 }
 
-async function sendSignal(signal) {
+async function sendSignal(signal, confidence) {
   const emoji   = signal.direction === 'LONG' ? '🟢' : '🔴';
   const dirText = signal.direction === 'LONG' ? '做多' : '做空';
   const tfText  = signal.timeframe === '4h'  ? '4小时' : '1小时';
+
+  const confLine = confidence
+    ? `🎯 置信度: ${confidence.stars} ${confidence.level} | 历史胜率 ${(confidence.winRate * 100).toFixed(1)}% (近${confidence.total}次)`
+    : `🎯 置信度: 计算中...`;
 
   const text = [
     `${emoji} <b>BTCUSDT ${dirText}信号</b>`,
@@ -40,6 +44,7 @@ async function sendSignal(signal) {
     `📋 原因: ${signal.reason}`,
     `🕐 周期: ${tfText}`,
     `⏰ 时间: ${toBeijing(signal.time)}`,
+    confLine,
     `⏱ 策略: 持仓1小时后平仓`,
   ].join('\n');
 
