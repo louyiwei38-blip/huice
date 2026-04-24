@@ -1,0 +1,16 @@
+{
+  "name": "btc-oscillation-signal",
+  "version": "1.0.0",
+  "description": "BTCUSDT震荡反转交易信号系统",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "backtest": "node backtest.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "ccxt": "^4.2.95",
+    "dotenv": "^16.4.5",
+    "node-cron": "^3.0.3"
+  }
+}
