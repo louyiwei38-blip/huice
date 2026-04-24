@@ -177,8 +177,13 @@ function calculateADX(candles, period = 14) {
     return sum === 0 ? 0 : (Math.abs(pDI - mDI) / sum) * 100;
   });
 
-  const adxArr = wildersSmooth(dxArr, period);
-  return adxArr[adxArr.length - 1];
+  // ADX initial = average of first `period` DX values, then Wilder's EMA
+  if (dxArr.length < period) return null;
+  let adx = dxArr.slice(0, period).reduce((s, v) => s + v, 0) / period;
+  for (let i = period; i < dxArr.length; i++) {
+    adx = (adx * (period - 1) + dxArr[i]) / period;
+  }
+  return adx;
 }
 
 /**

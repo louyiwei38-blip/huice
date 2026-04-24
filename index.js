@@ -104,11 +104,11 @@ async function main() {
   console.log('轮询间隔: 每分钟\n');
 
   const poll = async () => {
-    // ADX ranging check on 1H (context for signal filtering)
-    const candles1H = await fetchCandles(SYMBOL, '1h', 100).catch(() => null);
-    if (candles1H) {
-      const adx     = calculateADX(candles1H);
-      const ranging = isRanging(candles1H);
+    // ADX ranging check on 15M (signal filter: ADX < 100)
+    const candles15mAdx = await fetchCandles(SYMBOL, '15m', 200).catch(() => null);
+    if (candles15mAdx) {
+      const adx     = calculateADX(candles15mAdx);
+      const ranging = isRanging(candles15mAdx, 14, 100);
       const adxStr  = adx !== null ? adx.toFixed(1) : 'N/A';
       if (!ranging) {
         console.log(`[ADX ${adxStr}] 趋势行情，暂停信号检测`);
