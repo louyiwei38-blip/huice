@@ -5,7 +5,7 @@ const { checkSignal }  = require('./signal');
 
 const SYMBOL       = 'BTC/USDT';
 const LOOKBACK     = 1000;
-const HISTORY_DAYS = 30;          // days used to compute win rates
+const HISTORY_DAYS = 50;          // days used to compute win rates
 const CACHE_TTL    = 4 * 3600 * 1000; // refresh every 4 hours
 const MIN_SAMPLES  = 5;           // minimum trades needed to show confidence
 
