@@ -131,4 +131,64 @@ function getTrendlines(candles) {
   return { uptrendLine, downtrendLine };
 }
 
-module.exports = { getSupportResistance, getTrendlines, findSwingHighs, findSwingLows };
+// ─── ADX (Average Directional Index) ─────────────────────────────────────────
+
+/**
+ * Wilder's smoothing: initial = sum of first `period` values,
+ * then smooth = prev - prev/period + current
+ */
+function wildersSmooth(arr, period) {
+  let smoothed = arr.slice(0, period).reduce((s, v) => s + v, 0);
+  const result = [smoothed];
+  for (let i = period; i < arr.length; i++) {
+    smoothed = smoothed - smoothed / period + arr[i];
+    result.push(smoothed);
+  }
+  return result;
+}
+
+/**
+ * Calculate ADX value for the last candle.
+ * @param {Array}  candles - OHLCV candle array
+ * @param {number} period  - default 14
+ * @returns {number|null}  ADX value, or null if insufficient data
+ */
+function calculateADX(candles, period = 14) {
+  if (candles.length < period * 2 + 1) return null;
+
+  const trs = [], plusDMs = [], minusDMs = [];
+
+  for (let i = 1; i < candles.length; i++) {
+    const c = candles[i], p = candles[i - 1];
+    trs.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
+    const up = c.high - p.high, dn = p.low - c.low;
+    plusDMs.push(up > dn && up > 0 ? up : 0);
+    minusDMs.push(dn > up && dn > 0 ? dn : 0);
+  }
+
+  const sTR    = wildersSmooth(trs, period);
+  const sPDM   = wildersSmooth(plusDMs, period);
+  const sMDM   = wildersSmooth(minusDMs, period);
+
+  const dxArr = sTR.map((tr, i) => {
+    const pDI = (sPDM[i] / tr) * 100;
+    const mDI = (sMDM[i] / tr) * 100;
+    const sum = pDI + mDI;
+    return sum === 0 ? 0 : (Math.abs(pDI - mDI) / sum) * 100;
+  });
+
+  const adxArr = wildersSmooth(dxArr, period);
+  return adxArr[adxArr.length - 1];
+}
+
+/**
+ * Returns true when market is ranging (non-trending).
+ * Uses 1H candles; ADX < 25 indicates weak trend = oscillating.
+ */
+function isRanging(candles, period = 14, threshold = 25) {
+  const adx = calculateADX(candles, period);
+  if (adx === null) return true; // default allow if insufficient data
+  return adx < threshold;
+}
+
+module.exports = { getSupportResistance, getTrendlines, findSwingHighs, findSwingLows, calculateADX, isRanging };

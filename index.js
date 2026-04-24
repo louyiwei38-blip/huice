@@ -6,6 +6,7 @@ const cron = require('node-cron');
 
 const { fetchCandles }             = require('./src/data');
 const { checkSignal, SR_TOLERANCE, TRENDLINE_TOLERANCE } = require('./src/signal');
+const { isRanging, calculateADX }  = require('./src/indicators');
 const { sendSignal, sendDailyReport } = require('./src/notify');
 const { getConfidence, computeWinRates } = require('./src/confidence');
 
@@ -13,7 +14,7 @@ const SYMBOL   = 'BTC/USDT:USDT';  // Binance USDM perpetual
 const LOOKBACK = 1000;
 
 // Last processed candle timestamp per timeframe (avoids duplicate signals)
-const lastCandleTs = { '4h': 0, '1h': 0 };
+const lastCandleTs = { '15m': 0, '1h': 0 };
 
 // Pending exits: entry trades waiting for 1H hold to complete
 const pendingExits = [];
@@ -103,7 +104,20 @@ async function main() {
   console.log('轮询间隔: 每分钟\n');
 
   const poll = async () => {
-    await checkTimeframe('4h').catch(e => console.error('[4H 错误]', e.message));
+    // ADX ranging check on 1H (context for signal filtering)
+    const candles1H = await fetchCandles(SYMBOL, '1h', 100).catch(() => null);
+    if (candles1H) {
+      const adx     = calculateADX(candles1H);
+      const ranging = isRanging(candles1H);
+      const adxStr  = adx !== null ? adx.toFixed(1) : 'N/A';
+      if (!ranging) {
+        console.log(`[ADX ${adxStr}] 趋势行情，暂停信号检测`);
+        await processPendingExits().catch(e => console.error('[出场 错误]', e.message));
+        return;
+      }
+      console.log(`[ADX ${adxStr}] 震荡行情，开始检测信号`);
+    }
+    await checkTimeframe('15m').catch(e => console.error('[15M 错误]', e.message));
     await checkTimeframe('1h').catch(e => console.error('[1H 错误]', e.message));
     await processPendingExits().catch(e => console.error('[出场 错误]', e.message));
   };

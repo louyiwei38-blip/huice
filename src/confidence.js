@@ -2,6 +2,7 @@
 
 const { fetchCandles } = require('./data');
 const { checkSignal }  = require('./signal');
+const { isRanging }    = require('./indicators');
 
 const SYMBOL       = 'BTC/USDT:USDT';  // Binance USDM perpetual
 const LOOKBACK     = 1000;
@@ -10,7 +11,6 @@ const CACHE_TTL    = 4 * 3600 * 1000; // refresh every 4 hours
 const MIN_SAMPLES  = 5;           // minimum trades needed to show confidence
 
 const TF1H_MS = 3600 * 1000;
-const TF4H_MS = 4 * 3600 * 1000;
 
 // In-memory cache: category → { winRate, total }
 let cache     = {};
@@ -36,8 +36,9 @@ function getCategory(signal) {
 async function computeWinRates() {
   console.log(`[置信度] 计算近 ${HISTORY_DAYS} 天历史胜率...`);
 
-  const candles1H = await fetchCandles(SYMBOL, '1h', HISTORY_DAYS * 24 + LOOKBACK + 10);
-  const candles4H = await fetchCandles(SYMBOL, '4h', HISTORY_DAYS * 6  + LOOKBACK + 10);
+  const TF15M_MS = 15 * 60 * 1000;
+  const candles1H  = await fetchCandles(SYMBOL, '1h',  HISTORY_DAYS * 24  + LOOKBACK + 10);
+  const candles15M = await fetchCandles(SYMBOL, '15m', HISTORY_DAYS * 96  + LOOKBACK + 10);
 
   const testStart = candles1H.length - HISTORY_DAYS * 24;
   const tally = {}; // category → { wins, total }
@@ -53,6 +54,10 @@ async function computeWinRates() {
   for (let i = testStart; i < candles1H.length - 1; i++) {
     const curTs = candles1H[i].timestamp;
 
+    // ADX ranging filter: only process signals in ranging conditions
+    const adxWindow = candles1H.slice(Math.max(0, i - 99), i + 1);
+    if (!isRanging(adxWindow)) continue;
+
     // 1H signal
     const w1H  = candles1H.slice(Math.max(0, i - LOOKBACK + 1), i + 1);
     const sig1H = checkSignal(w1H, '1h');
@@ -61,14 +66,16 @@ async function computeWinRates() {
       continue;
     }
 
-    // 4H signal (only at 4H close)
-    if ((curTs + TF1H_MS) % TF4H_MS === 0) {
-      const idx4H = candles4H.findIndex(c => c.timestamp === curTs - 3 * TF1H_MS);
-      if (idx4H > 0) {
-        const w4H   = candles4H.slice(Math.max(0, idx4H - LOOKBACK + 1), idx4H + 1);
-        const sig4H = checkSignal(w4H, '4h');
-        if (sig4H) {
-          record(sig4H, candles1H[i].close, candles1H[i + 1].close);
+    // 15M signal (check all 15M candles within this 1H candle period)
+    const h1Open = curTs - TF1H_MS;
+    const idx15Start = candles15M.findIndex(c => c.timestamp >= h1Open);
+    if (idx15Start >= 0) {
+      for (let k = idx15Start; k < candles15M.length && candles15M[k].timestamp < curTs; k++) {
+        const w15M  = candles15M.slice(Math.max(0, k - LOOKBACK + 1), k + 1);
+        const sig15 = checkSignal(w15M, '15m');
+        if (sig15) {
+          record(sig15, candles1H[i].close, candles1H[i + 1].close);
+          break;
         }
       }
     }
