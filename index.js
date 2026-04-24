@@ -5,7 +5,7 @@ require('dotenv').config();
 const cron = require('node-cron');
 
 const { fetchCandles }             = require('./src/data');
-const { checkSignal }              = require('./src/signal');
+const { checkSignal, SR_TOLERANCE, TRENDLINE_TOLERANCE } = require('./src/signal');
 const { sendSignal, sendDailyReport } = require('./src/notify');
 
 const SYMBOL   = 'BTC/USDT';
@@ -97,7 +97,7 @@ async function sendDailyReportNow() {
 
 async function main() {
   console.log('=== BTCUSDT 震荡反转信号系统 ===');
-  console.log('参数: SR容差=0.3% | 趋势线容差=0.03% | 回溯=1000根');
+  console.log(`参数: SR容差=${(SR_TOLERANCE * 100).toFixed(2)}% | 趋势线容差=${(TRENDLINE_TOLERANCE * 100).toFixed(2)}% | 回溯=${LOOKBACK}根`);
   console.log('轮询间隔: 每分钟\n');
 
   const poll = async () => {

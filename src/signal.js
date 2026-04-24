@@ -5,6 +5,9 @@ const { getSupportResistance, getTrendlines } = require('./indicators');
 const SR_TOLERANCE        = 0.0005;  // 0.05% — support/resistance core zone
 const TRENDLINE_TOLERANCE = 0.0003;  // 0.03% — trendline touch
 
+module.exports.SR_TOLERANCE        = SR_TOLERANCE;
+module.exports.TRENDLINE_TOLERANCE = TRENDLINE_TOLERANCE;
+
 /**
  * Check whether the last closed candle in `candles` triggers a signal.
  *
