@@ -9,7 +9,7 @@ const { checkSignal, SR_TOLERANCE, TRENDLINE_TOLERANCE } = require('./src/signal
 const { sendSignal, sendDailyReport } = require('./src/notify');
 const { getConfidence, computeWinRates } = require('./src/confidence');
 
-const SYMBOL   = 'BTC/USDT';
+const SYMBOL   = 'BTC/USDT:USDT';  // Binance USDM perpetual
 const LOOKBACK = 1000;
 
 // Last processed candle timestamp per timeframe (avoids duplicate signals)

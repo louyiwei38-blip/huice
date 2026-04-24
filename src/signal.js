@@ -4,6 +4,8 @@ const { getSupportResistance, getTrendlines } = require('./indicators');
 
 const SR_TOLERANCE        = 0.0005;  // 0.05% — support/resistance core zone
 const TRENDLINE_TOLERANCE = 0.0003;  // 0.03% — trendline touch
+const VOL_PERIOD          = 20;      // candles for average volume baseline
+const VOL_MULTIPLIER      = 1.5;     // volume must exceed avg × this to trigger
 
 
 /**
@@ -28,10 +30,16 @@ function checkSignal(candles, timeframe) {
   const price      = last.close;
   const lastIdx    = candles.length - 1;
 
-  // 1. Support zone → LONG
+  // Volume spike check: current volume vs recent average
+  const volSlice  = candles.slice(-(VOL_PERIOD + 1), -1); // exclude current candle
+  const avgVol    = volSlice.reduce((s, c) => s + c.volume, 0) / volSlice.length;
+  const volSpike  = last.volume >= avgVol * VOL_MULTIPLIER;
+  const volRatio  = (last.volume / avgVol).toFixed(2);
+
+  // 1. Support zone → LONG (volume spike required)
   for (const level of sr.support) {
-    if (Math.abs(price - level) / level <= SR_TOLERANCE) {
-      return _signal('LONG', price, `触及支撑位 ${level.toFixed(2)}`, timeframe, last);
+    if (volSpike && Math.abs(price - level) / level <= SR_TOLERANCE) {
+      return _signal('LONG', price, `支撑位 ${level.toFixed(2)} 放量确认 (${volRatio}x均量)`, timeframe, last);
     }
   }
 
@@ -43,10 +51,10 @@ function checkSignal(candles, timeframe) {
     }
   }
 
-  // 3. Resistance zone → SHORT
+  // 3. Resistance zone → SHORT (volume spike required)
   for (const level of sr.resistance) {
-    if (Math.abs(price - level) / level <= SR_TOLERANCE) {
-      return _signal('SHORT', price, `触及阻力位 ${level.toFixed(2)}`, timeframe, last);
+    if (volSpike && Math.abs(price - level) / level <= SR_TOLERANCE) {
+      return _signal('SHORT', price, `阻力位 ${level.toFixed(2)} 放量确认 (${volRatio}x均量)`, timeframe, last);
     }
   }
 

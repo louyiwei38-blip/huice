@@ -3,7 +3,7 @@
 const { fetchCandles } = require('./data');
 const { checkSignal }  = require('./signal');
 
-const SYMBOL       = 'BTC/USDT';
+const SYMBOL       = 'BTC/USDT:USDT';  // Binance USDM perpetual
 const LOOKBACK     = 1000;
 const HISTORY_DAYS = 50;          // days used to compute win rates
 const CACHE_TTL    = 4 * 3600 * 1000; // refresh every 4 hours

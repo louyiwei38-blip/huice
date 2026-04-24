@@ -2,11 +2,11 @@
 
 const ccxt = require('ccxt');
 
-const exchange = new ccxt.binance({ enableRateLimit: true });
+const exchange = new ccxt.binanceusdm({ enableRateLimit: true });
 
 /**
  * Fetch OHLCV candles, supports requests > 1000 via pagination.
- * @param {string} symbol  e.g. 'BTC/USDT'
+ * @param {string} symbol  e.g. 'BTC/USDT:USDT' (perpetual)
  * @param {string} timeframe  e.g. '1h', '4h'
  * @param {number} limit  total candles to fetch
  * @returns {Promise<Array>} array of candle objects
