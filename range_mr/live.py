@@ -9,6 +9,7 @@ from .models import Signal
 from .replay import apply_binary_payout
 from .stats import format_ts, print_conflict, print_signal
 from .telegram_notify import format_settle_tg, format_signal_tg, load_telegram, send_telegram
+from .trade import TradeBot
 
 
 @dataclass
@@ -53,23 +54,45 @@ def run_live(cfg: Config) -> None:
     token, chat = load_telegram(cfg)
     if token and chat:
         print(f"Telegram 已连接 chat_id={chat}")
-        try:
-            send_telegram(
-                token,
-                chat,
-                "Range MR V1.1 已启动\n标的: " + ", ".join(symbols) + f"\n支付率 {cfg.payout_rate:.0%}",
-            )
-        except Exception as exc:
-            print(f"Telegram 启动消息失败: {exc}")
     else:
         print("未配置 Telegram：信号只打印在终端。请设置 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 或 data/telegram.json")
+
+    trader = TradeBot.from_config(cfg)
+    trade_ready = False
+    if trader:
+        try:
+            info = trader.connect()
+            trade_ready = True
+            print(
+                f"下单面板已连接 {trader.base_url} | "
+                f"带单#{info['leader_id']} {info['leader_name']} | "
+                f"{trader.order_amount}U / 30m / 赔付 {trader.payout_ratio}"
+            )
+        except Exception as exc:
+            print(f"下单面板暂时连不上，出信号时会重试: {exc}")
+    else:
+        print("未开启自动下单：复制 data/trade.json.example 为 data/trade.json 并填写面板账号")
+
+    boot_lines = ["Range MR V1.1 已启动", "标的: " + ", ".join(symbols), f"支付率 {cfg.payout_rate:.0%}"]
+    if trader:
+        status = "已连接" if trade_ready else "待重试"
+        boot_lines.append(
+            f"自动下单: {status} {trader.order_amount}U / 30分钟 / {trader.base_url}"
+        )
+    else:
+        boot_lines.append("自动下单: 关闭")
+    if token and chat:
+        try:
+            send_telegram(token, chat, "\n".join(boot_lines))
+        except Exception as exc:
+            print(f"Telegram 启动消息失败: {exc}")
 
     import time
 
     while True:
         try:
             for book in books:
-                _poll(client, book, token, chat)
+                _poll(client, book, token, chat, trader)
         except KeyboardInterrupt:
             print("停止 live")
             return
@@ -78,7 +101,7 @@ def run_live(cfg: Config) -> None:
         time.sleep(cfg.live_poll_sec)
 
 
-def _poll(client: BinanceUMFutures, book: SymbolBook, token: str, chat: str) -> None:
+def _poll(client: BinanceUMFutures, book: SymbolBook, token: str, chat: str, trader: TradeBot | None) -> None:
     cfg = book.cfg
     det = book.det
     bars = client.fetch_closed_klines(book.symbol, "30m", limit=5)
@@ -102,9 +125,27 @@ def _poll(client: BinanceUMFutures, book: SymbolBook, token: str, chat: str) -> 
         book.seen.add(key)
         book.pending.append(sig)
         print_signal(sig, cfg)
+        trade_note = ""
+        if trader:
+            try:
+                placed = trader.place(sig)
+                trade_note = (
+                    f"自动下单成功 {trader.order_amount}U 30m {sig.symbol} "
+                    f"{'看涨' if sig.side == 'LONG' else '看跌'}"
+                )
+                extra = placed.get("id") or placed.get("orderId") or placed.get("signalId")
+                if extra:
+                    trade_note += f" id={extra}"
+                print(trade_note, flush=True)
+            except Exception as exc:
+                trade_note = f"自动下单失败: {exc}"
+                print(trade_note, flush=True)
         if token and chat:
             try:
-                send_telegram(token, chat, format_signal_tg(sig, cfg))
+                text = format_signal_tg(sig, cfg)
+                if trade_note:
+                    text += "\n" + trade_note
+                send_telegram(token, chat, text)
             except Exception as exc:
                 print(f"Telegram 信号发送失败: {exc}")
     for c in result.conflicts:

@@ -44,6 +44,8 @@ class BinanceUMFutures:
                 out.append(bar)
             last_open = raw[-1][0]
             cursor = int(last_open) + interval_ms
+            if len(out) % 30000 < 1500:
+                print(f"  {symbol} {interval} 已拉 {len(out)} 根", flush=True)
             if len(raw) < 1500:
                 break
             time.sleep(0.05)

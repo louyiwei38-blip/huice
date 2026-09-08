@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "base_url": "http://194.233.90.109:3000",
+  "username": "面板登录用户名",
+  "password": "面板登录密码",
+  "leader_account_id": null,
+  "order_amount": 50,
+  "time_increments": "THIRTY_MINUTE",
+  "payout_ratio": "0.85"
+}

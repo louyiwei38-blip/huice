@@ -55,8 +55,12 @@ class Config:
 
     live_poll_sec: float = 3.0
     payout_rate: float = 0.85  # 赢：+支付率 * 本金；输：-本金
-    stake: float = 1.0
+    stake: float = 250.0
     binance_base: str = "https://fapi.binance.com"
     display_tz: str = "Asia/Shanghai"
     telegram_token: str = ""
     telegram_chat_id: str = ""
+
+    trade_base_url: str = "http://194.233.90.109:3000"
+    trade_amount: int = 50
+    trade_period: str = "THIRTY_MINUTE"

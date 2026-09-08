@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from dataclasses import replace
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from range_mr.binance_data import BinanceUMFutures
+from range_mr.cache import load_or_fetch_klines
 from range_mr.config import Config, INTERVAL_30M_MS, SETTLE_MS
 from range_mr.replay import default_range, parse_day, replay
 from range_mr.stats import print_conflict, print_signal, render_summary, summarize, write_csv
@@ -24,16 +26,25 @@ def main() -> None:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_replay = sub.add_parser("replay", help="回放历史 1m/30m 并结算")
-    p_replay.add_argument("--days", type=int, default=7, help="回放最近 N 天（默认 7）")
+    p_replay.add_argument("--days", type=int, default=7, help="回放最近 N 天（默认 7；两年用 730）")
     p_replay.add_argument("--start", type=str, default="", help="开始日期 YYYY-MM-DD（本地时区）")
     p_replay.add_argument("--end", type=str, default="", help="结束日期 YYYY-MM-DD（本地时区，不含当天则可只填 start）")
     p_replay.add_argument("--out", type=str, default="output/signals.csv")
     p_replay.add_argument("--print-signals", action="store_true", help="逐条打印信号")
+    p_replay.add_argument("--stake", type=float, default=None, help="每注本金（默认 250）")
+    p_replay.add_argument(
+        "--symbol",
+        type=str,
+        default="",
+        help="单个标的，如 ETHUSDT；默认回放 BTCUSDT+ETHUSDT",
+    )
 
     sub.add_parser("live", help="实时检测 BTC+ETH，信号推送到 Telegram")
 
     args = parser.parse_args()
     cfg = Config()
+    if getattr(args, "stake", None) is not None:
+        cfg = replace(cfg, stake=args.stake)
 
     if args.cmd == "replay":
         run_replay(cfg, args)
@@ -57,33 +68,49 @@ def run_replay(cfg: Config, args) -> None:
     warmup_ms = cfg.warmup_30m * INTERVAL_30M_MS
     fetch_30_start = start_ms - warmup_ms
     fetch_1m_end = end_ms + SETTLE_MS + 60_000
+    symbols = (args.symbol.upper(),) if args.symbol else (cfg.symbols or (cfg.symbol,))
 
     print(
-        f"拉取 {cfg.symbol} 30m/1m | "
-        f"{_fmt(fetch_30_start, tz)} -> {_fmt(fetch_1m_end, tz)}"
+        f"回放区间 {_fmt(start_ms, tz)} -> {_fmt(end_ms, tz)} | "
+        f"标的 {', '.join(symbols)} | 每注 {cfg.stake:g} | 支付率 {cfg.payout_rate:.0%}",
+        flush=True,
     )
     client = BinanceUMFutures(cfg.binance_base)
-    bars_30m = client.fetch_klines(cfg.symbol, "30m", fetch_30_start, fetch_1m_end)
-    bars_1m = client.fetch_klines(cfg.symbol, "1m", start_ms - 60_000, fetch_1m_end)
-    print(f"已拉取 30m={len(bars_30m)}  1m={len(bars_1m)}")
-    if len(bars_30m) < cfg.warmup_30m or len(bars_1m) < 40:
-        raise SystemExit("K 线数量不足，无法回放")
+    all_signals = []
+    all_conflicts = []
 
-    signals, conflicts, _det = replay(bars_30m, bars_1m, cfg, start_ms, end_ms)
+    for symbol in symbols:
+        scfg = replace(cfg, symbol=symbol)
+        print(f"\n===== {symbol} =====", flush=True)
+        bars_30m = load_or_fetch_klines(client, symbol, "30m", fetch_30_start, fetch_1m_end)
+        bars_1m = load_or_fetch_klines(client, symbol, "1m", start_ms - 60_000, fetch_1m_end)
+        print(f"已准备 {symbol} 30m={len(bars_30m)}  1m={len(bars_1m)}", flush=True)
+        if len(bars_30m) < cfg.warmup_30m or len(bars_1m) < 40:
+            raise SystemExit(f"{symbol} K 线数量不足，无法回放")
+
+        signals, conflicts, _det = replay(bars_30m, bars_1m, scfg, start_ms, end_ms)
+        print(f"{symbol} 信号 {len(signals)}  冲突 {len(conflicts)}", flush=True)
+        all_signals.extend(signals)
+        all_conflicts.extend(conflicts)
+
+    all_signals.sort(key=lambda s: (s.signal_time, s.symbol, s.logic))
     if args.print_signals:
-        for c in conflicts:
+        for c in all_conflicts:
             print_conflict(c, cfg)
-        for s in signals:
+        for s in all_signals:
             print_signal(s, cfg)
 
-        stats = summarize(signals, cfg.payout_rate, cfg.stake)
-    text = render_summary(stats, len(conflicts))
+    stats = summarize(all_signals, cfg.payout_rate, cfg.stake)
+    text = render_summary(stats, len(all_conflicts))
     print()
     print(text)
-    write_csv(args.out, signals, cfg)
+    write_csv(args.out, all_signals, cfg)
     stats_path = os.path.splitext(args.out)[0] + "_stats.txt"
+    os.makedirs(os.path.dirname(stats_path) or ".", exist_ok=True)
     with open(stats_path, "w", encoding="utf-8") as f:
         f.write(text + "\n")
+        f.write(f"区间: {_fmt(start_ms, tz)} -> {_fmt(end_ms, tz)}\n")
+        f.write(f"标的: {', '.join(symbols)}\n")
     print(f"\n明细: {args.out}")
     print(f"统计: {stats_path}")
 
