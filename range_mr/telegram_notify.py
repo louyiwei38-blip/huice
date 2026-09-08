@@ -56,14 +56,18 @@ def format_signal_tg(sig: Signal, cfg: Config) -> str:
     )
 
 
-def format_settle_tg(sig: Signal, cfg: Config) -> str:
+def format_settle_tg(sig: Signal, cfg: Config, stake: float | None = None, extra: str = "") -> str:
     t = format_ts(sig.settle_time, cfg.display_tz)
     arrow = "多" if sig.side == "LONG" else "空"
     pnl = sig.payout_pnl if sig.payout_pnl is not None else 0.0
-    return (
+    used = cfg.stake if stake is None else stake
+    text = (
         f"<b>结算 {sig.result}</b> {sig.symbol} {arrow}\n"
         f"逻辑: {sig.logic}\n"
         f"开 {sig.open_px:.2f} → 结 {sig.settle_px:.2f}\n"
-        f"支付盈亏: {pnl:+.2f}（本金{cfg.stake:g} / 支付率{cfg.payout_rate:.0%}）\n"
+        f"支付盈亏: {pnl:+.2f}（本金{used:g}U / 支付率{cfg.payout_rate:.0%}）\n"
         f"时间: {t}"
     )
+    if extra:
+        text += "\n\n" + extra
+    return text

@@ -6,6 +6,7 @@ from .binance_data import BinanceUMFutures
 from .config import Config, INTERVAL_1M_MS, INTERVAL_30M_MS, SETTLE_MS
 from .detector import Detector
 from .models import DetectResult, Signal
+from .live_stats import append_settlement, format_boot_stats, format_live_stats_tg, load_rows, summarize_live
 from .replay import apply_binary_payout
 from .stats import format_ts, print_conflict, print_signal
 from .telegram_notify import format_settle_tg, format_signal_tg, load_telegram, send_telegram
@@ -82,13 +83,18 @@ def run_live(cfg: Config) -> None:
     else:
         print("未开启自动下单：复制 data/trade.json.example 为 data/trade.json 并填写面板账号")
 
+    live_stake = float(trader.order_amount) if trader else cfg.stake
     boot_lines = [
         "Range MR V1.1 已启动",
         "标的: " + ", ".join(symbols),
         f"支付率 {cfg.payout_rate:.0%}",
         f"盘整条件: {'开' if cfg.require_ranging else '关'}",
         "检测: 已收盘1m（与回放一致）",
+        f"结算本金: {live_stake:g}U",
     ]
+    boot_stats = format_boot_stats(cfg.display_tz, live_stake)
+    if boot_stats:
+        boot_lines.append(boot_stats)
     if trader:
         status = "已连接" if trade_ready else "待重试"
         boot_lines.append(
@@ -107,7 +113,7 @@ def run_live(cfg: Config) -> None:
     while True:
         try:
             for book in books:
-                _poll(client, book, token, chat, trader)
+                _poll(client, book, token, chat, trader, live_stake)
         except KeyboardInterrupt:
             print("停止 live")
             return
@@ -129,6 +135,8 @@ def _handle_detect(
         if key in book.seen:
             continue
         book.seen.add(key)
+        # 实盘等 1m 收盘才下单，30 分钟从收盘/下单起算，不是 1m 开盘。
+        sig.settle_time = sig.signal_time + INTERVAL_1M_MS + SETTLE_MS
         book.pending.append(sig)
         print_signal(sig, cfg)
         trade_note = ""
@@ -158,7 +166,14 @@ def _handle_detect(
         print_conflict(c, cfg)
 
 
-def _poll(client: BinanceUMFutures, book: SymbolBook, token: str, chat: str, trader: TradeBot | None) -> None:
+def _poll(
+    client: BinanceUMFutures,
+    book: SymbolBook,
+    token: str,
+    chat: str,
+    trader: TradeBot | None,
+    live_stake: float,
+) -> None:
     cfg = book.cfg
     det = book.det
     bars = client.fetch_closed_klines(book.symbol, "30m", limit=5)
@@ -194,7 +209,6 @@ def _poll(client: BinanceUMFutures, book: SymbolBook, token: str, chat: str, tra
     for sig in book.pending:
         if ts >= sig.settle_time:
             sig.settle_px = px
-            sig.settle_time = sig.signal_time + SETTLE_MS
             if sig.side == "LONG":
                 sig.pnl_abs = px - sig.open_px
             else:
@@ -206,15 +220,20 @@ def _poll(client: BinanceUMFutures, book: SymbolBook, token: str, chat: str, tra
                 sig.result = "负"
             else:
                 sig.result = "平"
-            apply_binary_payout(sig, cfg.payout_rate, cfg.stake)
+            apply_binary_payout(sig, cfg.payout_rate, live_stake)
+            append_settlement(sig, live_stake, cfg.display_tz)
+            today = format_ts(sig.settle_time, cfg.display_tz)[:10]
+            extra = format_live_stats_tg(summarize_live(load_rows(), today), live_stake)
             t = format_ts(ts, cfg.display_tz)
             print(
                 f"[{t}] 结算 {sig.symbol} {sig.side} {sig.logic} {sig.result} "
-                f"开={sig.open_px:.1f} 结={px:.1f} 支付盈亏={sig.payout_pnl:+.2f}"
+                f"开={sig.open_px:.1f} 结={px:.1f} 支付盈亏={sig.payout_pnl:+.2f}",
+                flush=True,
             )
+            print(extra.replace("<b>", "").replace("</b>", ""), flush=True)
             if token and chat:
                 try:
-                    send_telegram(token, chat, format_settle_tg(sig, cfg))
+                    send_telegram(token, chat, format_settle_tg(sig, cfg, live_stake, extra))
                 except Exception as exc:
                     print(f"Telegram 结算发送失败: {exc}")
         else:

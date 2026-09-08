@@ -1,5 +1,6 @@
 data/telegram.json
 data/trade.json
+data/live_settlements.jsonl
 logs/
 __pycache__/
 *.pyc
