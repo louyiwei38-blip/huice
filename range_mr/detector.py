@@ -29,6 +29,24 @@ class Detector:
         self.last_price: float | None = None
         self._bar_open: float = 0.0
         self._bar_close: float = 0.0
+        self.filter_stats: dict[str, int] = {
+            "scan": 0,
+            "flip_only": 0,
+            "ranging_block": 0,
+            "candidates": 0,
+            "with_bar": 0,
+            "max_er": 0,
+            "chase": 0,
+            "cooldown": 0,
+            "conflict": 0,
+            "emitted": 0,
+        }
+
+    def pop_filter_stats(self) -> dict[str, int]:
+        out = dict(self.filter_stats)
+        for k in self.filter_stats:
+            self.filter_stats[k] = 0
+        return out
 
     def on_30m_close(self, bar: Bar) -> None:
         if self.closed_30m and bar.open_time <= self.closed_30m[-1].open_time:
@@ -100,6 +118,7 @@ class Detector:
         st = self.structure
         if st is None:
             return []
+        self.filter_stats["scan"] += 1
         out: list[Signal] = []
         if self.flip is not None:
             if ts >= self.flip.expire_ts:
@@ -109,6 +128,7 @@ class Detector:
                 if travel >= self.cfg.flip_travel_mult * self.flip.old_height:
                     self.flip = None
                 else:
+                    self.filter_stats["flip_only"] += 1
                     if "SR_FLIP" in self.cfg.enabled_logics:
                         sig = self._maybe_flip(ts, prev_px, low, high, open_px, last_px, st)
                         if sig:
@@ -116,6 +136,7 @@ class Detector:
                     return out
 
         if self.cfg.require_ranging and not st.is_ranging:
+            self.filter_stats["ranging_block"] += 1
             return out
 
         if "BOX_EDGE" in self.cfg.enabled_logics:
@@ -142,22 +163,28 @@ class Detector:
             return []
         out: list[Signal] = []
         for sig in candidates:
+            self.filter_stats["candidates"] += 1
             if sig.logic not in cfg.enabled_logics:
                 continue
             if sig.side not in cfg.allowed_sides:
                 continue
             if cfg.require_with_bar:
                 if sig.side == "LONG" and bar.close < bar.open:
+                    self.filter_stats["with_bar"] += 1
                     continue
                 if sig.side == "SHORT" and bar.close > bar.open:
+                    self.filter_stats["with_bar"] += 1
                     continue
             if cfg.max_er is not None and sig.regime == "RANGE" and sig.er > cfg.max_er:
+                self.filter_stats["max_er"] += 1
                 continue
             if cfg.skip_chase_atr > 0 and st is not None:
                 chase = cfg.skip_chase_atr * st.atr
                 if sig.side == "LONG" and bar.close < st.range_low - chase:
+                    self.filter_stats["chase"] += 1
                     continue
                 if sig.side == "SHORT" and bar.close > st.range_high + chase:
+                    self.filter_stats["chase"] += 1
                     continue
             out.append(sig)
         return out
@@ -167,6 +194,7 @@ class Detector:
             return DetectResult()
         sides = {s.side for s in candidates}
         if "LONG" in sides and "SHORT" in sides:
+            self.filter_stats["conflict"] += 1
             return DetectResult(
                 conflicts=[
                     Conflict(
@@ -190,9 +218,11 @@ class Detector:
             key = (sig.logic, sig.side)
             until = self.cooldowns.get(key, 0)
             if ts < until:
+                self.filter_stats["cooldown"] += 1
                 continue
             self.cooldowns[key] = cooldown_until(ts, self.cfg.cooldown_bars)
             kept.append(sig)
+        self.filter_stats["emitted"] += len(kept)
         return DetectResult(signals=kept)
 
     def _update_flip_on_close(self, bar: Bar, prior: Structure) -> None:

@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from .binance_data import BinanceUMFutures
-from .config import Config, INTERVAL_30M_MS, SETTLE_MS
+from .config import Config, INTERVAL_1M_MS, INTERVAL_30M_MS, SETTLE_MS
 from .detector import Detector
-from .models import Signal
+from .models import DetectResult, Signal
 from .replay import apply_binary_payout
 from .stats import format_ts, print_conflict, print_signal
 from .telegram_notify import format_settle_tg, format_signal_tg, load_telegram, send_telegram
@@ -18,6 +18,8 @@ class SymbolBook:
     cfg: Config
     det: Detector
     last_30m_open: int
+    last_1m_open: int
+    prev_1m_close: float
     pending: list[Signal]
     seen: set[tuple[int, str, str, str]]
 
@@ -34,9 +36,13 @@ def run_live(cfg: Config) -> None:
             raise RuntimeError(f"{symbol} 30m 历史不足: {len(history)}")
         for bar in history:
             det.on_30m_close(bar)
+        hist_1m = client.fetch_closed_klines(symbol, "1m", limit=5)
+        if not hist_1m:
+            raise RuntimeError(f"{symbol} 1m 历史不足")
         st = det.structure
         print(
             f"LIVE {symbol} 已加载 {len(history)} 根30m | "
+            f"检测=已收盘1m | "
             f"盘整条件={'开' if scfg.require_ranging else '关'} | "
             f"盘整={st.is_ranging if st else None} | "
             f"箱体={st.range_low if st else 0:.1f}-{st.range_high if st else 0:.1f}"
@@ -47,6 +53,8 @@ def run_live(cfg: Config) -> None:
                 cfg=scfg,
                 det=det,
                 last_30m_open=history[-1].open_time,
+                last_1m_open=hist_1m[-1].open_time,
+                prev_1m_close=hist_1m[-1].close,
                 pending=[],
                 seen=set(),
             )
@@ -79,6 +87,7 @@ def run_live(cfg: Config) -> None:
         "标的: " + ", ".join(symbols),
         f"支付率 {cfg.payout_rate:.0%}",
         f"盘整条件: {'开' if cfg.require_ranging else '关'}",
+        "检测: 已收盘1m（与回放一致）",
     ]
     if trader:
         status = "已连接" if trade_ready else "待重试"
@@ -107,23 +116,14 @@ def run_live(cfg: Config) -> None:
         time.sleep(cfg.live_poll_sec)
 
 
-def _poll(client: BinanceUMFutures, book: SymbolBook, token: str, chat: str, trader: TradeBot | None) -> None:
+def _handle_detect(
+    book: SymbolBook,
+    result: DetectResult,
+    token: str,
+    chat: str,
+    trader: TradeBot | None,
+) -> None:
     cfg = book.cfg
-    det = book.det
-    bars = client.fetch_closed_klines(book.symbol, "30m", limit=5)
-    for bar in bars:
-        if bar.open_time > book.last_30m_open:
-            det.on_30m_close(bar)
-            book.last_30m_open = bar.open_time
-            st = det.structure
-            if st:
-                print(
-                    f"{book.symbol} 30m收盘 {format_ts(bar.open_time + INTERVAL_30M_MS, cfg.display_tz)} "
-                    f"ranging={st.is_ranging} flip={det.flip.direction if det.flip else '-'}"
-                )
-
-    ts, px = client.fetch_mark(book.symbol)
-    result = det.on_tick(ts, px)
     for sig in result.signals:
         key = (sig.signal_time, sig.symbol, sig.side, sig.logic)
         if key in book.seen:
@@ -156,6 +156,39 @@ def _poll(client: BinanceUMFutures, book: SymbolBook, token: str, chat: str, tra
                 print(f"Telegram 信号发送失败: {exc}")
     for c in result.conflicts:
         print_conflict(c, cfg)
+
+
+def _poll(client: BinanceUMFutures, book: SymbolBook, token: str, chat: str, trader: TradeBot | None) -> None:
+    cfg = book.cfg
+    det = book.det
+    bars = client.fetch_closed_klines(book.symbol, "30m", limit=5)
+    for bar in bars:
+        if bar.open_time > book.last_30m_open:
+            det.on_30m_close(bar)
+            book.last_30m_open = bar.open_time
+            st = det.structure
+            stats = det.pop_filter_stats()
+            if st:
+                print(
+                    f"{book.symbol} 30m收盘 {format_ts(bar.open_time + INTERVAL_30M_MS, cfg.display_tz)} "
+                    f"ranging={st.is_ranging} flip={det.flip.direction if det.flip else '-'} "
+                    f"box={st.range_low:.1f}-{st.range_high:.1f} "
+                    f"扫描={stats['scan']} 候选={stats['candidates']} "
+                    f"当根丢={stats['with_bar']} 突破窗={stats['flip_only']} "
+                    f"冷却={stats['cooldown']} 发出={stats['emitted']}",
+                    flush=True,
+                )
+
+    ts, px = client.fetch_mark(book.symbol)
+    if ts >= book.last_1m_open + 2 * INTERVAL_1M_MS:
+        m1 = client.fetch_closed_klines(book.symbol, "1m", limit=8)
+        for bar in m1:
+            if bar.open_time <= book.last_1m_open:
+                continue
+            result = det.on_1m(bar, book.prev_1m_close)
+            book.prev_1m_close = bar.close
+            book.last_1m_open = bar.open_time
+            _handle_detect(book, result, token, chat, trader)
 
     still: list[Signal] = []
     for sig in book.pending:
