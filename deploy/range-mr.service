@@ -1,0 +1,15 @@
+[Unit]
+Description=Range MR V1.1 BTC+ETH signal bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/huice
+ExecStart=/opt/huice/.venv/bin/python -u /opt/huice/run_server.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+data/telegram.json
+logs/
+__pycache__/
+*.pyc
+.venv/
+output/*.csv
+output/*.json
+data/*usdt_1m.csv
+data/*usdt_30m.csv
+data/cache_meta.txt
