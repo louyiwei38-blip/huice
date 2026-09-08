@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, replace
 
 from .binance_data import BinanceUMFutures
 from .config import Config, INTERVAL_1M_MS, INTERVAL_30M_MS, SETTLE_MS
 from .detector import Detector
-from .models import DetectResult, Signal
+from .models import Bar, DetectResult, Signal
 from .live_stats import append_settlement, format_boot_stats, format_live_stats_tg, load_rows, summarize_live
 from .replay import apply_binary_payout
 from .stats import format_ts, print_conflict, print_signal
@@ -43,7 +44,7 @@ def run_live(cfg: Config) -> None:
         st = det.structure
         print(
             f"LIVE {symbol} 已加载 {len(history)} 根30m | "
-            f"检测=已收盘1m | "
+            f"检测=1m影线触及 | "
             f"盘整条件={'开' if scfg.require_ranging else '关'} | "
             f"盘整={st.is_ranging if st else None} | "
             f"箱体={st.range_low if st else 0:.1f}-{st.range_high if st else 0:.1f}"
@@ -89,7 +90,7 @@ def run_live(cfg: Config) -> None:
         "标的: " + ", ".join(symbols),
         f"支付率 {cfg.payout_rate:.0%}",
         f"盘整条件: {'开' if cfg.require_ranging else '关'}",
-        "检测: 已收盘1m（与回放一致）",
+        "检测: 1m影线触及（盘整关，与回放②一致）",
         f"结算本金: {live_stake:g}U",
     ]
     boot_stats = format_boot_stats(cfg.display_tz, live_stake)
@@ -107,8 +108,6 @@ def run_live(cfg: Config) -> None:
             send_telegram(token, chat, "\n".join(boot_lines))
         except Exception as exc:
             print(f"Telegram 启动消息失败: {exc}")
-
-    import time
 
     while True:
         try:
@@ -135,8 +134,9 @@ def _handle_detect(
         if key in book.seen:
             continue
         book.seen.add(key)
-        # 实盘等 1m 收盘才下单，30 分钟从收盘/下单起算，不是 1m 开盘。
-        sig.settle_time = sig.signal_time + INTERVAL_1M_MS + SETTLE_MS
+        trigger_ts = int(time.time() * 1000)
+        sig.signal_time = trigger_ts
+        sig.settle_time = trigger_ts + SETTLE_MS
         book.pending.append(sig)
         print_signal(sig, cfg)
         trade_note = ""
@@ -176,9 +176,16 @@ def _poll(
 ) -> None:
     cfg = book.cfg
     det = book.det
-    bars = client.fetch_closed_klines(book.symbol, "30m", limit=5)
-    for bar in bars:
-        if bar.open_time > book.last_30m_open:
+    ts, px = client.fetch_mark(book.symbol)
+    m1 = client.fetch_recent_klines(book.symbol, "1m", limit=8)
+    bars_30 = client.fetch_closed_klines(book.symbol, "30m", limit=8)
+
+    def apply_30m_up_to(open_ts: int) -> None:
+        for bar in bars_30:
+            if bar.open_time <= book.last_30m_open:
+                continue
+            if bar.open_time + INTERVAL_30M_MS > open_ts:
+                continue
             det.on_30m_close(bar)
             book.last_30m_open = bar.open_time
             st = det.structure
@@ -194,16 +201,33 @@ def _poll(
                     flush=True,
                 )
 
-    ts, px = client.fetch_mark(book.symbol)
-    if ts >= book.last_1m_open + 2 * INTERVAL_1M_MS:
-        m1 = client.fetch_closed_klines(book.symbol, "1m", limit=8)
-        for bar in m1:
-            if bar.open_time <= book.last_1m_open:
-                continue
-            result = det.on_1m(bar, book.prev_1m_close)
-            book.prev_1m_close = bar.close
-            book.last_1m_open = bar.open_time
-            _handle_detect(book, result, token, chat, trader)
+    closed_1m = [b for b in m1 if b.open_time + INTERVAL_1M_MS <= ts]
+    forming = None
+    if m1 and m1[-1].open_time + INTERVAL_1M_MS > ts:
+        forming = m1[-1]
+
+    for bar in closed_1m:
+        if bar.open_time <= book.last_1m_open:
+            continue
+        apply_30m_up_to(bar.open_time)
+        result = det.on_1m(bar, book.prev_1m_close)
+        book.prev_1m_close = bar.close
+        book.last_1m_open = bar.open_time
+        _handle_detect(book, result, token, chat, trader)
+
+    if forming is not None and forming.open_time > book.last_1m_open:
+        apply_30m_up_to(forming.open_time)
+        forming = Bar(
+            open_time=forming.open_time,
+            close_time=forming.close_time,
+            open=forming.open,
+            high=max(forming.high, px),
+            low=min(forming.low, px),
+            close=forming.close,
+            volume=forming.volume,
+        )
+        result = det.on_1m(forming, book.prev_1m_close)
+        _handle_detect(book, result, token, chat, trader)
 
     still: list[Signal] = []
     for sig in book.pending:

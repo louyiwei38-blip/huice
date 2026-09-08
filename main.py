@@ -81,7 +81,7 @@ def run_replay(cfg: Config, args) -> None:
     print(
         f"回放区间 {_fmt(start_ms, tz)} -> {_fmt(end_ms, tz)} | "
         f"标的 {', '.join(symbols)} | 每注 {cfg.stake:g} | 支付率 {cfg.payout_rate:.0%} | "
-        f"盘整条件 {ranging}",
+        f"盘整条件 {ranging} | 影线成交（1m第一次触及）",
         flush=True,
     )
     client = BinanceUMFutures(cfg.binance_base)
@@ -121,6 +121,7 @@ def run_replay(cfg: Config, args) -> None:
         f.write(f"区间: {_fmt(start_ms, tz)} -> {_fmt(end_ms, tz)}\n")
         f.write(f"标的: {', '.join(symbols)}\n")
         f.write(f"盘整条件: {'开' if cfg.require_ranging else '关'}\n")
+        f.write("成交: 1m影线第一次触及 | 结算: 信号开盘+30m\n")
     print(f"\n明细: {args.out}")
     print(f"统计: {stats_path}")
 

@@ -50,7 +50,7 @@ def format_signal_tg(sig: Signal, cfg: Config) -> str:
         f"开仓价: {sig.open_px:.2f}\n"
         f"触发位: {sig.trigger_level:.2f}\n"
         f"时间: {t}\n"
-        f"结算: {settle}（+30m）\n"
+        f"结算: {settle}（触发+30分钟）\n"
         f"支付率: {cfg.payout_rate:.0%}  赢+{cfg.payout_rate:g} / 输-1\n"
         f"{sig.reason}"
     )

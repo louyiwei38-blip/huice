@@ -62,6 +62,10 @@ class BinanceUMFutures:
         bars = [_parse_bar(row) for row in raw]
         return [b for b in bars if b.open_time + interval_ms <= now_ms]
 
+    def fetch_recent_klines(self, symbol: str, interval: str, limit: int = 8) -> list[Bar]:
+        raw = self._get_klines(symbol, interval, start_ms=None, end_ms=None, limit=limit)
+        return [_parse_bar(row) for row in raw]
+
     def fetch_mark(self, symbol: str) -> tuple[int, float]:
         url = f"{self.base_url}/fapi/v1/premiumIndex"
         resp = self.session.get(url, params={"symbol": symbol}, timeout=self.timeout)
