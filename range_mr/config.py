@@ -40,6 +40,7 @@ class Config:
     warmup_30m: int = 80
 
     require_cross: bool = True
+    require_ranging: bool = False  # BOX_EDGE/SWING 不要求 is_ranging
 
     # quality filters (V1.1)
     enabled_logics: tuple[str, ...] = ("BOX_EDGE", "SWING", "SR_FLIP")

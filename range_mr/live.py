@@ -37,6 +37,7 @@ def run_live(cfg: Config) -> None:
         st = det.structure
         print(
             f"LIVE {symbol} 已加载 {len(history)} 根30m | "
+            f"盘整条件={'开' if scfg.require_ranging else '关'} | "
             f"盘整={st.is_ranging if st else None} | "
             f"箱体={st.range_low if st else 0:.1f}-{st.range_high if st else 0:.1f}"
         )
@@ -73,7 +74,12 @@ def run_live(cfg: Config) -> None:
     else:
         print("未开启自动下单：复制 data/trade.json.example 为 data/trade.json 并填写面板账号")
 
-    boot_lines = ["Range MR V1.1 已启动", "标的: " + ", ".join(symbols), f"支付率 {cfg.payout_rate:.0%}"]
+    boot_lines = [
+        "Range MR V1.1 已启动",
+        "标的: " + ", ".join(symbols),
+        f"支付率 {cfg.payout_rate:.0%}",
+        f"盘整条件: {'开' if cfg.require_ranging else '关'}",
+    ]
     if trader:
         status = "已连接" if trade_ready else "待重试"
         boot_lines.append(

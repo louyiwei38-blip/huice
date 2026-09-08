@@ -115,7 +115,7 @@ class Detector:
                             out.append(sig)
                     return out
 
-        if not st.is_ranging:
+        if self.cfg.require_ranging and not st.is_ranging:
             return out
 
         if "BOX_EDGE" in self.cfg.enabled_logics:

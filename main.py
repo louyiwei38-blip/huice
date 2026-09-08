@@ -38,6 +38,11 @@ def main() -> None:
         default="",
         help="单个标的，如 ETHUSDT；默认回放 BTCUSDT+ETHUSDT",
     )
+    p_replay.add_argument(
+        "--no-ranging",
+        action="store_true",
+        help="关闭盘整条件：BOX_EDGE/SWING 不再要求 is_ranging",
+    )
 
     sub.add_parser("live", help="实时检测 BTC+ETH，信号推送到 Telegram")
 
@@ -45,6 +50,8 @@ def main() -> None:
     cfg = Config()
     if getattr(args, "stake", None) is not None:
         cfg = replace(cfg, stake=args.stake)
+    if getattr(args, "no_ranging", False):
+        cfg = replace(cfg, require_ranging=False)
 
     if args.cmd == "replay":
         run_replay(cfg, args)
@@ -70,9 +77,11 @@ def run_replay(cfg: Config, args) -> None:
     fetch_1m_end = end_ms + SETTLE_MS + 60_000
     symbols = (args.symbol.upper(),) if args.symbol else (cfg.symbols or (cfg.symbol,))
 
+    ranging = "开" if cfg.require_ranging else "关"
     print(
         f"回放区间 {_fmt(start_ms, tz)} -> {_fmt(end_ms, tz)} | "
-        f"标的 {', '.join(symbols)} | 每注 {cfg.stake:g} | 支付率 {cfg.payout_rate:.0%}",
+        f"标的 {', '.join(symbols)} | 每注 {cfg.stake:g} | 支付率 {cfg.payout_rate:.0%} | "
+        f"盘整条件 {ranging}",
         flush=True,
     )
     client = BinanceUMFutures(cfg.binance_base)
@@ -111,6 +120,7 @@ def run_replay(cfg: Config, args) -> None:
         f.write(text + "\n")
         f.write(f"区间: {_fmt(start_ms, tz)} -> {_fmt(end_ms, tz)}\n")
         f.write(f"标的: {', '.join(symbols)}\n")
+        f.write(f"盘整条件: {'开' if cfg.require_ranging else '关'}\n")
     print(f"\n明细: {args.out}")
     print(f"统计: {stats_path}")
 
