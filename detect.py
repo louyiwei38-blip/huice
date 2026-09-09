@@ -3,7 +3,7 @@ RSI_BB 信号检测。与回放共用 scan_rsi_bb，参数冻结为 RSI(7) 20/80
 
 用法：
   python detect.py              # 全样本扫描，写出 output/detect_signals.csv
-  python detect.py --align      # 与 IS 回放对齐：N=3704、胜率 59.69%
+  python detect.py --align      # 与 IS 回放对齐：N=4184、胜率 59.44%
   python detect.py --latest     # 打印每标的最近一根已收盘 5m 是否触发
 """
 from __future__ import annotations
@@ -28,10 +28,10 @@ from strategy import (
 ROOT = Path(__file__).resolve().parent
 OUT_DIR = ROOT / "output"
 
-# 与 output/REPORT.md、rsi_bb_winner.json 的 IS 回放对齐
-ALIGN_IS_N = 3704
-ALIGN_IS_WR = 0.5969222462203023
-ALIGN_IS_EV = 0.1048461123110151
+# 与关掉资金费窗口后的 IS 回放对齐
+ALIGN_IS_N = 4184
+ALIGN_IS_WR = 0.5944072657743786
+ALIGN_IS_EV = 0.10037045889101337
 
 
 def _in_is(ts: pd.Series) -> pd.Series:

@@ -30,6 +30,7 @@ EV_WINRATE_THRESHOLD = 1.0 / 1.85  # ≈ 0.540540...
 RSI7_OVERSOLD = 22.0
 RSI7_OVERBOUGHT = 78.0
 # RSI_BB：只在 IS 网格选定后冻结；OOS 仅作确认，禁止再改
+# 事件合约无资金费，RSI_BB 默认不跳过资金费窗口（ignore_funding=True）
 RSI_BB_PERIOD = 7
 RSI_BB_OS = 20.0
 RSI_BB_OB = 80.0
@@ -271,6 +272,7 @@ def evaluate_rsi_bb(
     rsi_os: float | None = None,
     rsi_ob: float | None = None,
     bb_k: float | None = None,
+    ignore_funding: bool = True,
 ) -> pd.DataFrame:
     """
     简化规则：15m RSI + 15m 布林轨，两条件同时满足才开。
@@ -285,7 +287,7 @@ def evaluate_rsi_bb(
     bb_k = RSI_BB_K if bb_k is None else bb_k
     out = feat.copy()
     idx = feat.index
-    fund = in_funding_window(idx)
+    fund = np.zeros(len(idx), dtype=bool) if ignore_funding else in_funding_window(idx)
     rsi_col = "m15_rsi7" if int(rsi_period) == 7 else "m15_rsi14"
     rsi = feat[rsi_col].to_numpy()
     mid = feat["m15_bb_mid"].to_numpy()

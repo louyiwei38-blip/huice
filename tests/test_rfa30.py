@@ -243,6 +243,23 @@ def test_rsi_bb_requires_both_indicators():
     assert out["bias"].tolist() == [1, 0, -1]
 
 
+def test_rsi_bb_does_not_skip_funding_window():
+    """事件合约无资金费：默认在 UTC 08:00 资金费窗口内仍可开仓。"""
+    idx = pd.DatetimeIndex(["2024-01-02 08:00:00"], tz="UTC")
+    feat = pd.DataFrame(
+        {
+            "m15_rsi7": [20.0],
+            "m15_close": [87.0],
+            "m15_bb_mid": [100.0],
+            "m15_bb_upper": [110.0],
+        },
+        index=idx,
+    )
+    assert bool(in_funding_window(idx)[0]) is True
+    assert int(evaluate_rsi_bb(feat, "BTCUSDT")["bias"].iloc[0]) == 1
+    assert int(evaluate_rsi_bb(feat, "BTCUSDT", ignore_funding=False)["bias"].iloc[0]) == 0
+
+
 def test_detect_is_aligns_replay_constants():
     """有本地 1m 时，检测脚本 IS 必须打到冻结回放的 N/胜率。"""
     from pathlib import Path as P
