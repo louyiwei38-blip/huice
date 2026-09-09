@@ -48,6 +48,11 @@ FIVE_MIN = 5 * 60
 BAR_LAG_SEC = 8  # 5m 收盘后再等几秒，避免 K 线未落库
 
 
+def log(msg: str, *, err: bool = False) -> None:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    print(f"{ts} {msg}", flush=True, file=sys.stderr if err else sys.stdout)
+
+
 def _utc(ts: Any) -> datetime:
     t = pd.Timestamp(ts)
     if t.tzinfo is None:
@@ -421,10 +426,10 @@ def format_daily(st: dict[str, Any], day: str) -> str:
 def scan_live(lookback_minutes: int = LOOKBACK_MINUTES, now: datetime | None = None) -> pd.DataFrame:
     frames = []
     for symbol in SYMBOLS:
-        print(f"[live] {symbol}", flush=True)
+        log(f"[live] {symbol}")
         df_1m = fetch_recent_1m(symbol, lookback_minutes=lookback_minutes, now=now)
         if df_1m.empty:
-            print(f"[live] {symbol} 无 K 线", flush=True)
+            log(f"[live] {symbol} 无 K 线")
             continue
         trades, _ = scan_rsi_bb(df_1m, symbol)
         frames.append(trades)
@@ -473,7 +478,7 @@ def run_once(
     ledger = load_ledger()
     if trades is None:
         lb = lookback_minutes if lookback_minutes is not None else auto_lookback(ledger)
-        print(f"[live] lookback={lb}min", flush=True)
+        log(f"[live] lookback={lb}min")
         trades = scan_live(lookback_minutes=lb, now=now)
     events = ingest_trades(ledger, trades, now)
     daily_msg, daily_stamp = maybe_daily(ledger, now)
@@ -492,7 +497,7 @@ def run_once(
         ledger["last_daily_utc"] = daily_stamp
         if save:
             save_ledger(ledger)
-        print(f"[tg] sent {daily_msg.splitlines()[0][:80]}", flush=True)
+        log(f"[tg] sent {daily_msg.splitlines()[0][:80]}")
     elif ledger.get("last_daily_utc") is None:
         ledger["last_daily_utc"] = daily_stamp
         if save:
@@ -511,9 +516,9 @@ def run_once(
             rec["notified_settle"] = True
         if save:
             save_ledger(ledger)
-        print(f"[tg] sent {msg.splitlines()[0][:80]}", flush=True)
+        log(f"[tg] sent {msg.splitlines()[0][:80]}")
     if not messages:
-        print("[live] 本轮无新开仓/结算", flush=True)
+        log("[live] 本轮无新开仓/结算")
     return messages
 
 
@@ -532,14 +537,13 @@ def run_loop(*, dry_run: bool = False, lookback_minutes: int | None = None) -> N
 
     signal.signal(signal.SIGINT, _stop)
     signal.signal(signal.SIGTERM, _stop)
-    print(
-        f"RSI_BB 实盘循环  RSI({RSI_BB_PERIOD}) {RSI_BB_OS:.0f}/{RSI_BB_OB:.0f} k={RSI_BB_K}",
-        flush=True,
+    log(
+        f"RSI_BB 实盘循环  RSI({RSI_BB_PERIOD}) {RSI_BB_OS:.0f}/{RSI_BB_OB:.0f} k={RSI_BB_K}"
     )
     run_once(dry_run=dry_run, lookback_minutes=lookback_minutes)
     while not stop["flag"]:
         wait = seconds_to_next_5m()
-        print(f"[live] sleep {wait:.0f}s → 下一根 5m", flush=True)
+        log(f"[live] sleep {wait:.0f}s → 下一根 5m")
         end = time.time() + wait
         while time.time() < end and not stop["flag"]:
             time.sleep(min(1.0, end - time.time()))
@@ -548,9 +552,9 @@ def run_loop(*, dry_run: bool = False, lookback_minutes: int | None = None) -> N
         try:
             run_once(dry_run=dry_run, lookback_minutes=lookback_minutes)
         except Exception as exc:  # noqa: BLE001
-            print(f"[live] 本轮失败: {exc}", flush=True)
+            log(f"[live] 本轮失败: {exc}", err=True)
             send_telegram(f"⚠️ RSI_BB 扫描失败：{html_escape(str(exc)[:300])}", dry_run=dry_run)
-    print("[live] 已停止", flush=True)
+    log("[live] 已停止")
 
 
 def main() -> None:
@@ -569,17 +573,16 @@ def main() -> None:
             f"RSI_BB 连通测试\n规则 RSI({RSI_BB_PERIOD}) {RSI_BB_OS:.0f}/{RSI_BB_OB:.0f} k={RSI_BB_K}",
             dry_run=args.dry_run,
         )
-        print("测试消息已处理。", flush=True)
+        log("测试消息已处理。")
         return
     if args.test_copybot:
         bot = get_client()
         user = bot.login()
         leader = bot.ensure_ready()
-        print(
+        log(
             f"跟单面板登录成功 user={user.get('username') or user.get('name') or user.get('type')} "
             f"leader={leader.get('name')} id={leader.get('id')} auth={leader.get('authStatus')} "
-            f"amount={copybot_amount()} enabled={copybot_enabled()}",
-            flush=True,
+            f"amount={copybot_amount()} enabled={copybot_enabled()}"
         )
         return
     if args.stats:
@@ -590,13 +593,13 @@ def main() -> None:
             f"\n{format_stats_block(st)}"
         )
         send_telegram(msg, dry_run=args.dry_run)
-        print(format_stats_block(st), flush=True)
+        log(format_stats_block(st))
         return
     if args.loop:
         run_loop(dry_run=args.dry_run, lookback_minutes=args.lookback)
         return
     if not args.once:
-        print("未指定模式，默认 --once。长期推送请用 --loop。", flush=True)
+        log("未指定模式，默认 --once。长期推送请用 --loop。")
     run_once(dry_run=args.dry_run, lookback_minutes=args.lookback)
 
 
@@ -604,5 +607,5 @@ if __name__ == "__main__":
     try:
         main()
     except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
+        log(str(exc), err=True)
         raise SystemExit(1)

@@ -197,6 +197,18 @@ def test_format_entry_includes_fill():
         "payload": {"symbolName": "BTCUSDT", "direction": "LONG", "orderAmount": "50"},
     }
     assert "已下单 BTCUSDT LONG 50U" in format_entry(rec)
+
+
+def test_seconds_to_next_5m_positive():
     now = datetime(2026, 9, 9, 12, 1, 0, tzinfo=timezone.utc)
     wait = seconds_to_next_5m(now, lag_sec=8)
     assert 4 * 60 + 7 <= wait <= 4 * 60 + 9
+
+
+def test_log_prefix_has_utc_timestamp(capsys):
+    from live import log
+
+    log("[live] ping")
+    out = capsys.readouterr().out
+    assert " UTC [live] ping" in out
+    assert out[:4].isdigit()

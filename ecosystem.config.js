@@ -12,6 +12,7 @@ module.exports = {
       error_file: 'logs/rsibb-error.log',
       out_file: 'logs/rsibb-out.log',
       merge_logs: true,
+      time: true,
       env: {
         PYTHONUNBUFFERED: '1',
       },
