@@ -1,4 +1,4 @@
-回放、实盘、PM2 说明已写在 [README.md](README.md)。本文件保留以免旧命令失效。
+说明见 [README.md](README.md)。
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
