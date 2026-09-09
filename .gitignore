@@ -1,2 +1,14 @@
-node_modules/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
 .env
+data/**/*.parquet
+data/**/*.csv
+output/*.csv
+output/*.json
+output/*.md
+output/*.tmp
+node_modules/
+logs/
+*.log
