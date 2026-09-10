@@ -86,6 +86,22 @@ def test_ingest_skips_old_history_but_keeps_fresh_entry():
     assert ledger["trades"][old_id]["seed"] is True
     eth_id = trade_id("ETHUSDT", "2026-09-09T12:00:00+00:00")
     assert ledger["trades"][eth_id]["seed"] is False
+    assert ledger["trades"][eth_id]["void"] is False
+
+
+def test_ingest_notifies_pending_before_settle():
+    """入场当下没有结算价时仍要推送/下单。"""
+    ledger = empty_ledger()
+    now = datetime(2026, 9, 9, 15, 25, 20, tzinfo=timezone.utc)
+    pending = _trade(
+        timestamp="2026-09-09 15:25:00",
+        settle_time="2026-09-09 15:55:00",
+        pnl=None,
+        settle=None,
+        void=False,
+    )
+    events = ingest_trades(ledger, pd.DataFrame([pending]), now)
+    assert [k for k, _ in events] == ["entry"]
 
 
 def test_ingest_settle_after_open():

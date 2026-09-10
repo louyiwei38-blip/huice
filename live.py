@@ -45,7 +45,7 @@ WARM_LOOKBACK_MINUTES = 36 * 60
 ENTRY_NOTIFY_SEC = 12 * 60
 SETTLE_NOTIFY_SEC = 12 * 60
 FIVE_MIN = 5 * 60
-BAR_LAG_SEC = 8  # 5m 收盘后再等几秒，避免 K 线未落库
+BAR_LAG_SEC = 20  # 5m 收盘后再等，避免币安 K 线未落库
 
 
 def log(msg: str, *, err: bool = False) -> None:
@@ -214,7 +214,7 @@ def ingest_trades(
                 events.append(("settle", rec))
             continue
 
-        was_open = prev.get("pnl") is None and not prev.get("void")
+        was_open = prev.get("pnl") is None
         kept_copybot = prev.get("copybot")
         for k in (
             "entry",
@@ -518,7 +518,13 @@ def run_once(
             save_ledger(ledger)
         log(f"[tg] sent {msg.splitlines()[0][:80]}")
     if not messages:
-        log("[live] 本轮无新开仓/结算")
+        n_open = sum(
+            1
+            for r in ledger["trades"].values()
+            if not r.get("void") and r.get("pnl") is None
+        )
+        extra = f"  持仓中={n_open}" if n_open else ""
+        log(f"[live] 本轮无新开仓/结算{extra}")
     return messages
 
 

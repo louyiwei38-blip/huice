@@ -126,13 +126,27 @@ def test_settlement_aligns_t_plus_30m_1m_close():
 
 
 def test_missing_settle_bar_is_void():
-    """缺结算 1m 则作废不计入。"""
+    """结算时刻已过、但该根 1m 缺失 → 作废。"""
+    df = _one_minute_df("2024-03-01 00:00:00", 90)
+    d1 = to_close_index(df)
+    hole = pd.Timestamp("2024-03-01 00:35:00", tz="UTC")
+    d1 = d1.drop(index=hole)
+    t = pd.Timestamp("2024-03-01 00:05:00", tz="UTC")
+    sig = pd.DataFrame({"close": [100.0], "bias": [1]}, index=pd.DatetimeIndex([t]))
+    filled = settle_trades(sig, d1["close"], np.array([True]))
+    assert bool(filled["void"].iloc[0]) is True
+    assert np.isnan(filled["pnl"].iloc[0])
+
+
+def test_future_settle_is_pending_not_void():
+    """实盘入场时 T+30 的 1m 还没到 → 持仓中，不得当 void 丢掉。"""
     df = _one_minute_df("2024-03-01 00:00:00", 20)
     d1 = to_close_index(df)
     t = pd.Timestamp("2024-03-01 00:05:00", tz="UTC")
     sig = pd.DataFrame({"close": [100.0], "bias": [1]}, index=pd.DatetimeIndex([t]))
     filled = settle_trades(sig, d1["close"], np.array([True]))
-    assert bool(filled["void"].iloc[0]) is True
+    assert bool(filled["void"].iloc[0]) is False
+    assert bool(filled["traded"].iloc[0]) is True
     assert np.isnan(filled["pnl"].iloc[0])
 
 

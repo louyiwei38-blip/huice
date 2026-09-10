@@ -343,7 +343,7 @@ def settle_trades(
 ) -> pd.DataFrame:
     """
     入场价 = 该 5m close；结算价 = T+30 分钟那根 1m（close_time 对齐）的 close。
-    缺 K 则作废不计入。
+    结算时刻尚未出现在 1m 序列里 → 持仓中（非作废）；已过结算时刻仍缺 K → 作废。
     """
     out = signals.copy()
     n = len(out)
@@ -360,7 +360,13 @@ def settle_trades(
     void = np.zeros(n, dtype=bool)
 
     ok = taken & np.isfinite(settle_arr)
-    void_taken = taken & ~np.isfinite(settle_arr)
+    missing = taken & ~np.isfinite(settle_arr)
+    last_1m = close_1m.index.max() if len(close_1m) else pd.NaT
+    if len(close_1m) == 0 or pd.isna(last_1m):
+        void_taken = missing
+    else:
+        pending = missing & np.asarray(pd.DatetimeIndex(settle_time) > last_1m)
+        void_taken = missing & ~pending
     entry_out[taken] = entry[taken]
     settle_out[ok] = settle_arr[ok]
     void[void_taken] = True
