@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any
 
 from .binance_data import BinanceUMFutures
 from .config import Config, INTERVAL_1M_MS, INTERVAL_30M_MS, SETTLE_MS
@@ -12,6 +15,9 @@ from .replay import apply_binary_payout
 from .stats import format_ts, print_conflict, print_signal
 from .telegram_notify import format_settle_tg, format_signal_tg, load_telegram, send_telegram
 from .trade import TradeBot
+
+LIVE_LOCK = Path(__file__).resolve().parent.parent / "data" / "live.lock"
+PLACE_DEDUP_SEC = 120.0
 
 
 @dataclass
@@ -24,10 +30,44 @@ class SymbolBook:
     prev_1m_close: float
     pending: list[Signal]
     seen: set[tuple[int, str, str, str]]
+    placed_at: dict[tuple[str, str, str], float] = field(default_factory=dict)
+
+
+def _acquire_live_lock() -> Any:
+    LIVE_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(LIVE_LOCK, "a+")
+    try:
+        import fcntl
+
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except ImportError:
+        pass
+    except OSError as exc:
+        fh.close()
+        raise RuntimeError(
+            "另一个 Range MR live 已在运行。先停掉旧进程（pm2 / systemd / python main.py live），"
+            "否则同一信号会推送两次并下两单。"
+        ) from exc
+    fh.seek(0)
+    fh.truncate()
+    fh.write(str(os.getpid()))
+    fh.flush()
+    return fh
 
 
 def run_live(cfg: Config) -> None:
-    symbols = cfg.symbols or (cfg.symbol,)
+    _lock = _acquire_live_lock()
+    try:
+        _run_live_locked(cfg)
+    finally:
+        try:
+            _lock.close()
+        except Exception:
+            pass
+
+
+def _run_live_locked(cfg: Config) -> None:
+    symbols = tuple(dict.fromkeys(cfg.symbols or (cfg.symbol,)))
     client = BinanceUMFutures(cfg.binance_base)
     books: list[SymbolBook] = []
     for symbol in symbols:
@@ -90,6 +130,7 @@ def run_live(cfg: Config) -> None:
         "标的: " + ", ".join(symbols),
         f"支付率 {cfg.payout_rate:.0%}",
         f"盘整条件: {'开' if cfg.require_ranging else '关'}",
+        f"冷却: BOX/SWING {cfg.cooldown_bars}根30m, SR_FLIP {cfg.cooldown_bars_sr_flip or cfg.cooldown_bars}根",
         "检测: 1m影线触及（盘整关，与回放②一致）",
         f"结算本金: {live_stake:g}U",
     ]
@@ -133,7 +174,18 @@ def _handle_detect(
         key = (sig.signal_time, sig.symbol, sig.side, sig.logic)
         if key in book.seen:
             continue
+        place_key = (sig.symbol, sig.side, sig.logic)
+        now = time.time()
+        last = book.placed_at.get(place_key, 0.0)
+        if now - last < PLACE_DEDUP_SEC:
+            print(
+                f"跳过重复信号 {sig.symbol} {sig.side} {sig.logic} "
+                f"（{now - last:.1f}s 内已发过）",
+                flush=True,
+            )
+            continue
         book.seen.add(key)
+        book.placed_at[place_key] = now
         trigger_ts = int(time.time() * 1000)
         sig.signal_time = trigger_ts
         sig.settle_time = trigger_ts + SETTLE_MS

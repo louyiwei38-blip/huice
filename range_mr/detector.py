@@ -220,7 +220,10 @@ class Detector:
             if ts < until:
                 self.filter_stats["cooldown"] += 1
                 continue
-            self.cooldowns[key] = cooldown_until(ts, self.cfg.cooldown_bars)
+            bars = self.cfg.cooldown_bars
+            if sig.logic == "SR_FLIP" and self.cfg.cooldown_bars_sr_flip is not None:
+                bars = self.cfg.cooldown_bars_sr_flip
+            self.cooldowns[key] = cooldown_until(ts, bars)
             kept.append(sig)
         self.filter_stats["emitted"] += len(kept)
         return DetectResult(signals=kept)

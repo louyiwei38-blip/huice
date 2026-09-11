@@ -49,7 +49,8 @@ class Config:
     utc_hours: tuple[int, ...] | None = None  # 0-23 UTC, None=all
     min_confluence: int = 1
     merge_same_ts: bool = False
-    cooldown_bars: int = 4
+    cooldown_bars: int = 2  # BOX_EDGE / SWING 同向冷却（30m 根数）
+    cooldown_bars_sr_flip: int | None = 4  # SR_FLIP 单独更长；None 则跟 cooldown_bars
     require_with_bar: bool = True
     skip_chase_atr: float = 0.25
     max_er: float | None = 0.35  # drop RANGE signals with Kaufman ER above this
@@ -63,5 +64,5 @@ class Config:
     telegram_chat_id: str = ""
 
     trade_base_url: str = "http://194.233.90.109:3000"
-    trade_amount: int = 50
+    trade_amount: int = 100
     trade_period: str = "THIRTY_MINUTE"
