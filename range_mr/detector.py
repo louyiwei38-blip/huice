@@ -133,7 +133,7 @@ class Detector:
                         sig = self._maybe_flip(ts, prev_px, low, high, open_px, last_px, st)
                         if sig:
                             out.append(sig)
-                    return out
+                    # 突破窗不再挡住 BOX_EDGE / SWING
 
         if self.cfg.require_ranging and not st.is_ranging:
             self.filter_stats["ranging_block"] += 1
@@ -192,6 +192,22 @@ class Detector:
     def _emit(self, ts: int, price: float, candidates: list[Signal]) -> DetectResult:
         if not candidates:
             return DetectResult()
+        core = [s for s in candidates if s.logic != "SR_FLIP"]
+        flips = [s for s in candidates if s.logic == "SR_FLIP"]
+        core_res = self._emit_group(ts, price, core)
+        emitted_sides = {s.side for s in core_res.signals}
+        if emitted_sides:
+            # BOX/SWING 已发出时，反向 SR_FLIP 丢掉，不把核心信号一起冲突掉
+            flips = [s for s in flips if s.side in emitted_sides]
+        flip_res = self._emit_group(ts, price, flips)
+        return DetectResult(
+            signals=list(core_res.signals) + list(flip_res.signals),
+            conflicts=list(core_res.conflicts) + list(flip_res.conflicts),
+        )
+
+    def _emit_group(self, ts: int, price: float, candidates: list[Signal]) -> DetectResult:
+        if not candidates:
+            return DetectResult()
         sides = {s.side for s in candidates}
         if "LONG" in sides and "SHORT" in sides:
             self.filter_stats["conflict"] += 1
@@ -229,6 +245,9 @@ class Detector:
         return DetectResult(signals=kept)
 
     def _update_flip_on_close(self, bar: Bar, prior: Structure) -> None:
+        if "SR_FLIP" not in self.cfg.enabled_logics:
+            self.flip = None
+            return
         atr = prior.atr
         buf = self.cfg.breakout_atr_mult * atr
 
@@ -236,13 +255,15 @@ class Detector:
             if bar.open_time + INTERVAL_30M_MS >= self.flip.expire_ts:
                 self.flip = None
             else:
+                band_lo, band_hi = _flip_retest_band(self.flip, self.cfg.edge_frac)
                 if self.flip.direction == "up":
-                    if bar.close <= self.flip.old_range_high - buf:
+                    # 回踩要走到旧上沿带下沿；未跌破该下沿前保持突破窗
+                    if bar.close <= band_lo - buf:
                         self.flip = None
                     elif abs(bar.close - self.flip.breakout_level) >= self.cfg.flip_travel_mult * self.flip.old_height:
                         self.flip = None
                 else:
-                    if bar.close >= self.flip.old_range_low + buf:
+                    if bar.close >= band_hi + buf:
                         self.flip = None
                     elif abs(bar.close - self.flip.breakout_level) >= self.cfg.flip_travel_mult * self.flip.old_height:
                         self.flip = None
@@ -386,29 +407,23 @@ class Detector:
         if flip is None:
             return None
         tol = max(st.touch_tol, 0.15 * flip.atr)
-        best: tuple[float, float] | None = None
+        band_lo, band_hi = _flip_retest_band(flip, self.cfg.edge_frac)
         if flip.direction == "up":
-            for lvl in flip.levels:
-                if prev > lvl + tol and low <= lvl + tol and high >= lvl:
-                    best = (lvl, _first_touch(prev, open_px, low, high, lvl - tol, lvl + tol))
-                    break
-            if best:
-                lvl, px = best
+            # 从上方回踩旧阻力带，摸到下沿再做多（不再在上沿抢跑）
+            if prev > band_lo + tol and low <= band_lo + tol and high >= band_lo:
+                px = _first_touch(prev, open_px, low, high, band_lo - tol, band_lo + tol)
                 return self._sig(
-                    ts, "LONG", "SR_FLIP", px, st, lvl,
-                    f"向上突破后回踩旧阻力转支撑 {lvl:.1f}",
+                    ts, "LONG", "SR_FLIP", px, st, band_lo,
+                    f"向上突破后回踩旧阻力带下沿 {band_lo:.1f}",
                     regime="BREAKOUT",
                 )
         else:
-            for lvl in flip.levels:
-                if prev < lvl - tol and high >= lvl - tol and low <= lvl:
-                    best = (lvl, _first_touch(prev, open_px, low, high, lvl - tol, lvl + tol))
-                    break
-            if best:
-                lvl, px = best
+            # 从下方回抽旧支撑带，摸到上沿再做空（不再在下沿抢跑）
+            if prev < band_hi - tol and high >= band_hi - tol and low <= band_hi:
+                px = _first_touch(prev, open_px, low, high, band_hi - tol, band_hi + tol)
                 return self._sig(
-                    ts, "SHORT", "SR_FLIP", px, st, lvl,
-                    f"向下跌破后回抽旧支撑转阻力 {lvl:.1f}",
+                    ts, "SHORT", "SR_FLIP", px, st, band_hi,
+                    f"向下跌破后回抽旧支撑带上沿 {band_hi:.1f}",
                     regime="BREAKOUT",
                 )
         return None
@@ -466,6 +481,13 @@ def _first_touch(prev: float, open_px: float, low: float, high: float, zlo: floa
     else:
         px = min(max(open_px, zlo), zhi)
     return min(max(px, low), high)
+
+
+def _flip_retest_band(flip: FlipState, edge_frac: float) -> tuple[float, float]:
+    width = edge_frac * flip.old_height
+    if flip.direction == "up":
+        return flip.old_range_high - width, flip.old_range_high
+    return flip.old_range_low, flip.old_range_low + width
 
 
 def _uniq_levels(levels: list[float], rel: float = 0.0002) -> list[float]:

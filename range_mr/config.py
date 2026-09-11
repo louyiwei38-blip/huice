@@ -19,6 +19,11 @@ class Config:
     volume_ratio: float = 0.75
 
     edge_frac: float = 0.20
+    # 过宽截断：默认关闭。打开时 20% 带宽/价格超过 edge_wide_pct 则截到 max_edge_pct
+    edge_wide_pct: float | None = None
+    max_edge_pct: float | None = None
+    edge_wide_atr: float | None = None
+    max_edge_atr: float | None = None
     drop_extreme_bars: int = 1
 
     vp_buckets: int = 50

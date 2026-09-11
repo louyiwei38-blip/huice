@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | `BOX_EDGE` | 价格进入箱体上沿 / 下沿带 | 上沿空、下沿多 |
 | `SWING` | 触及阶段性前高 / 前低 | 前高空、前低多 |
-| `SR_FLIP` | 30m 收盘确认突破后，回踩旧阻力/支撑 | 向上突破回踩做多，向下跌破回抽做空 |
+| `SR_FLIP` | 30m 收盘确认突破后，回踩旧阻力/支撑 | 向上突破回踩做多，向下跌破回抽做空。突破窗不再挡住 BOX_EDGE / SWING |
 
 质量过滤（V1.1）：
 
@@ -29,7 +29,7 @@
 - 盘整信号 Kaufman ER 超过 0.35 丢弃（过滤单边趋势）
 - 追价超过 `0.25 * ATR` 丢弃
 - 同一逻辑 + 方向冷却 4 根 30m
-- 同一时刻多空同时触发记为冲突，不发信号
+- 同一时刻 BOX/SWING 多空同时触发记为冲突，不发信号；SR_FLIP 与它们反向时只丢 SR_FLIP
 
 参数都在 `range_mr/config.py` 的 `Config` 里。
 
@@ -276,6 +276,8 @@ pm2 restart range-mr
 | `volume_ratio` | 0.75 | 近端量 / 中位量，低于此视为盘整（仅标记，默认不拦截信号） |
 | `require_ranging` | False | 为 True 时 BOX_EDGE/SWING 只在盘整中发 |
 | `edge_frac` | 0.20 | 箱体上下沿带宽（箱体高度的 20%） |
+| `edge_wide_pct` | None | 带宽/价格过宽阈值；None 为关闭 |
+| `max_edge_pct` | None | 过宽时带宽上限（占价格）；需与 edge_wide_pct 一起开 |
 | `enabled_logics` | BOX_EDGE, SWING, SR_FLIP | 启用的逻辑 |
 | `cooldown_bars` | 4 | 同逻辑同方向冷却（30m 根数） |
 | `max_er` | 0.35 | 盘整信号 ER 上限 |

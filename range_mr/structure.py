@@ -26,7 +26,7 @@ def compute_structure(closed: list[Bar], cfg: Config) -> Structure | None:
     touch_tol = max(cfg.touch_pct * last.close, cfg.touch_atr_mult * atr)
     poc, vah, val, hvn_zones = volume_profile(window, range_high, range_low, mid, cfg)
     highs, lows = swing_points(window, cfg, mid, height)
-    edge = cfg.edge_frac * height
+    edge = edge_width(height, last.close, atr, cfg)
     er = kaufman_er(window)
     is_ranging, vol_near, vol_typical = volume_regime(window, cfg)
     return Structure(
@@ -50,6 +50,20 @@ def compute_structure(closed: list[Bar], cfg: Config) -> Structure | None:
         touch_tol=touch_tol,
         er=er,
     )
+
+
+def edge_width(height: float, price: float, atr: float, cfg: Config) -> float:
+    """箱体上下沿带宽度。默认 20% 箱体高度；过宽时截到价格比例或 ATR 上限。"""
+    edge = cfg.edge_frac * height
+    wide = cfg.edge_wide_pct
+    cap = cfg.max_edge_pct
+    if wide is not None and cap is not None and price > 0 and edge / price > wide:
+        edge = min(edge, cap * price)
+    wide_atr = cfg.edge_wide_atr
+    cap_atr = cfg.max_edge_atr
+    if wide_atr is not None and cap_atr is not None and atr > 0 and edge / atr > wide_atr:
+        edge = min(edge, cap_atr * atr)
+    return edge
 
 
 def compute_prior_box(prior: list[Bar], cfg: Config) -> Structure | None:
