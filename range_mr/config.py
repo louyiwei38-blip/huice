@@ -68,6 +68,6 @@ class Config:
     telegram_token: str = ""
     telegram_chat_id: str = ""
 
-    trade_base_url: str = "http://194.233.90.109:3000"
+    trade_base_url: str = "http://47.245.30.48:3000"
     trade_amount: int = 100
     trade_period: str = "THIRTY_MINUTE"

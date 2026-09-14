@@ -2,7 +2,7 @@
 
 币安 U 本位合约 **BTCUSDT + ETHUSDT** 的 30 分钟盘整回归 / 突破回踩信号检测。
 
-可推送 Telegram，并可对接 [事件合约跟单面板](http://194.233.90.109:3000) 自动下单：固定 **50 USDT**、周期 **30 分钟**，标的和方向跟信号走。回放统计默认每注本金 250。
+可推送 Telegram，并可对接 [事件合约跟单面板](http://47.245.30.48:3000) 自动下单：固定 **50 USDT**、周期 **30 分钟**，标的和方向跟信号走。回放统计默认每注本金 250。
 
 - 行情：`https://fapi.binance.com` 公开接口（K 线 + 标记价格）
 - 结构周期：30m
@@ -94,7 +94,7 @@ python -c "from range_mr.config import Config; from range_mr.telegram_notify imp
 
 ### 配置自动下单
 
-对接事件合约跟单面板 `http://194.233.90.109:3000`。有信号时调用 `POST /api/orders/place`：
+对接事件合约跟单面板 `http://47.245.30.48:3000`。有信号时调用 `POST /api/orders/place`：
 
 - 金额固定 **50 USDT**
 - 周期固定 **30 分钟**（`THIRTY_MINUTE`，赔付比 0.85）
@@ -108,7 +108,7 @@ nano data/trade.json
 ```json
 {
   "enabled": true,
-  "base_url": "http://194.233.90.109:3000",
+  "base_url": "http://47.245.30.48:3000",
   "username": "面板登录用户名",
   "password": "面板登录密码",
   "leader_account_id": null,
