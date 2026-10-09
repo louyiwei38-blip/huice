@@ -116,7 +116,10 @@ def test_ingest_settle_after_open():
     assert events[0][1]["pnl"] == 0.85
 
 
-def test_book_stats_today_and_open():
+def test_book_stats_today_and_open(monkeypatch):
+    import live as live_mod
+
+    monkeypatch.setattr(live_mod, "copybot_amount", lambda: 50)
     ledger = empty_ledger()
     now = datetime(2026, 9, 9, 18, 0, 0, tzinfo=timezone.utc)
     ingest_trades(
@@ -151,9 +154,14 @@ def test_book_stats_today_and_open():
     assert st["all"]["N"] == 2
     assert st["all"]["win_rate"] == 0.5
     assert st["all"]["pnl_sum"] == pytest.approx(-0.15)
+    assert st["all"]["pnl_usdt"] == pytest.approx(-7.5)  # (-0.15) × 默认 50U
+    assert st["all"]["EV_usdt"] == pytest.approx(-3.75)
     assert st["today"]["N"] == 2
     assert len(st["open"]) == 1
-    assert "ETHUSDT" in format_settle(ledger["trades"][trade_id("ETHUSDT", "2026-09-09T13:00:00+00:00")], st)
+    settle_msg = format_settle(ledger["trades"][trade_id("ETHUSDT", "2026-09-09T13:00:00+00:00")], st)
+    assert "ETHUSDT" in settle_msg
+    assert "LOSS -50.00U" in settle_msg
+    assert "累计=-7.50U" in settle_msg
 
 
 def test_format_entry_has_rule():
@@ -213,6 +221,25 @@ def test_format_entry_includes_fill():
         "payload": {"symbolName": "BTCUSDT", "direction": "LONG", "orderAmount": "50"},
     }
     assert "已下单 BTCUSDT LONG 50U" in format_entry(rec)
+
+
+def test_settle_usdt_uses_order_amount(monkeypatch):
+    import live as live_mod
+
+    monkeypatch.setattr(live_mod, "copybot_amount", lambda: 50)
+    rec = row_to_rec(_trade(pnl=0.85))
+    rec["seed"] = False
+    rec["copybot"] = {
+        "ok": True,
+        "payload": {"symbolName": "BTCUSDT", "direction": "LONG", "orderAmount": "100"},
+    }
+    ledger = empty_ledger()
+    ledger["trades"][trade_id(rec["symbol"], rec["timestamp"])] = rec
+    st = book_stats(ledger, datetime(2026, 9, 9, 13, 0, tzinfo=timezone.utc))
+    assert st["all"]["pnl_usdt"] == pytest.approx(85.0)
+    msg = format_settle(rec, st)
+    assert "WIN +85.00U" in msg
+    assert "+0.85 × 100U" in msg
 
 
 def test_seconds_to_next_5m_positive():

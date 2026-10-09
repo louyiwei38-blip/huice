@@ -4,7 +4,7 @@
 
 5m 收盘出信号，持仓 30 分钟，结算用 T+30min 那根 1m 收盘价。赢 **+0.85** / 输 **−1.0** / 平 **0**。正期望胜率门槛 ≈ 54.05%。
 
-实盘：推 [Telegram](https://telegram.org/)，并在 [跟单面板](http://194.233.90.109:3000) 自动下单（默认 50 USDT、30 分钟、赔付 0.85）。
+实盘：推 [Telegram](https://telegram.org/)，并 POST 到 [跟单 webhook](http://8.210.132.210:3000/api/webhook/copy-signal) 自动下单（默认 100 USDT、30 分钟）。
 
 ## 冻结规则（F 组，禁止再改）
 
@@ -17,6 +17,7 @@
 ```
 
 - 入场只在 **5m 收盘**
+- **跳过北京时间 20:00–23:00**（UTC 12:00–15:00）不开仓；`detect.py --align` 校验冻结指标时不叠加此时段过滤
 - **不跳过资金费窗口**（事件合约无资金费；RFA-30 原规则仍过滤，未改）
 - 同标的最多 1 笔，开仓间隔 ≥ 30 分钟
 - 指标为 NaN（预热未完成）或同一根多空都成立 → 空仓
@@ -69,11 +70,9 @@ python backtest.py                 # 全策略回放（含对照；RFA-30 未改
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_CHAT_ID=
 
-COPYBOT_URL=http://194.233.90.109:3000
-COPYBOT_USERNAME=
-COPYBOT_PASSWORD=
-COPYBOT_ORDER_AMOUNT=50
-# COPYBOT_LEADER_ID=
+COPYBOT_URL=http://8.210.132.210:3000
+COPYBOT_WEBHOOK_TOKEN=
+COPYBOT_ORDER_AMOUNT=100
 # COPYBOT_ENABLED=1
 ```
 
@@ -82,14 +81,14 @@ Telegram：[@BotFather](https://t.me/BotFather) 建 bot → 给 bot 发 `/start`
 
 ```bash
 python live.py --test              # 向 TG 推一条测试
-python live.py --test-copybot      # 登录面板，确认带单账户，不下单
+python live.py --test-copybot      # 检查 webhook 配置（不下单）
 python live.py --once --dry-run    # 扫一轮，只打印
 python live.py --once              # 扫一轮
 python live.py --loop              # 每根 5m 收盘：推送 + 下单
 python live.py --stats             # 推送实盘账本
 ```
 
-实盘额外门控（回放没有）：正在走的 1m 不用；5m 收盘后再等 8 秒；入场/结算超过 **12 分钟** 只记账不推、不下单；同一 `(标的, 入场时间)` 成功过不再下；`void` 或 `COPYBOT_ENABLED=0` / 无账号则不下单。
+实盘额外门控（回放没有）：正在走的 1m 不用；5m 收盘后再等 8 秒；入场/结算超过 **12 分钟** 只记账不推、不下单；同一 `(标的, 入场时间)` 成功过不再下；`void` 或 `COPYBOT_ENABLED=0` / 无 `COPYBOT_WEBHOOK_TOKEN` 则不下单。
 
 首次启动会把回看里的旧成交记入账本去重，**不刷屏、不计入实盘胜率**。账本：`output/live_ledger.json`，已结算：`output/live_pnl.csv`。
 

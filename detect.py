@@ -39,12 +39,12 @@ def _in_is(ts: pd.Series) -> pd.Series:
     return (t >= pd.Timestamp(IS_START)) & (t < pd.Timestamp(IS_END))
 
 
-def scan_all(cutoff: pd.Timestamp | None = None) -> pd.DataFrame:
+def scan_all(cutoff: pd.Timestamp | None = None, *, skip_bj_session: bool = True) -> pd.DataFrame:
     frames = []
     for symbol in SYMBOLS:
         print(f"[detect] {symbol}", flush=True)
         df_1m = load_symbol_1m(symbol, START, END)
-        trades, _ = scan_rsi_bb(df_1m, symbol)
+        trades, _ = scan_rsi_bb(df_1m, symbol, skip_bj_session=skip_bj_session)
         frames.append(trades)
     out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     if out.empty:
@@ -141,25 +141,34 @@ def main() -> None:
     ap.add_argument("--is-only", action="store_true", help="只输出 IS 区间信号")
     args = ap.parse_args()
 
+    from strategy import SKIP_SESSION_BJ_LABEL
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    print(
-        f"RSI_BB 检测  RSI({RSI_BB_PERIOD}) {RSI_BB_OS}/{RSI_BB_OB}  k={RSI_BB_K}",
-        flush=True,
-    )
+    if args.align:
+        print(
+            f"RSI_BB 检测  RSI({RSI_BB_PERIOD}) {RSI_BB_OS}/{RSI_BB_OB}  k={RSI_BB_K}  （对齐模式：不跳过时段）",
+            flush=True,
+        )
+    else:
+        print(
+            f"RSI_BB 检测  RSI({RSI_BB_PERIOD}) {RSI_BB_OS}/{RSI_BB_OB}  k={RSI_BB_K}  跳过{SKIP_SESSION_BJ_LABEL}",
+            flush=True,
+        )
 
     if args.latest:
         filled_map = {}
         trade_frames = []
         for symbol in SYMBOLS:
             df_1m = load_symbol_1m(symbol, START, END)
-            trades, filled = scan_rsi_bb(df_1m, symbol)
+            trades, filled = scan_rsi_bb(df_1m, symbol, skip_bj_session=True)
             filled_map[symbol] = filled
             trade_frames.append(trades)
         trades = pd.concat(trade_frames, ignore_index=True)
         print_latest(trades, filled_map)
         return
 
-    trades = scan_all()
+    # --align 校验冻结指标本身，不叠加时段过滤；日常检测/实盘默认跳过北京 20–23
+    trades = scan_all(skip_bj_session=not args.align)
     trades_out = trades.loc[_in_is(trades["timestamp"])].copy() if args.is_only else trades
 
     path = OUT_DIR / "detect_signals.csv"

@@ -274,6 +274,30 @@ def test_rsi_bb_does_not_skip_funding_window():
     assert int(evaluate_rsi_bb(feat, "BTCUSDT", ignore_funding=False)["bias"].iloc[0]) == 0
 
 
+def test_rsi_bb_skips_beijing_20_23():
+    """北京 20:00–23:00（UTC 12–15）在 skip_bj_session=True 时不开仓。"""
+    from strategy import in_skip_session
+
+    idx = pd.DatetimeIndex(
+        ["2024-01-02 11:55:00", "2024-01-02 12:00:00", "2024-01-02 14:55:00", "2024-01-02 15:00:00"],
+        tz="UTC",
+    )
+    feat = pd.DataFrame(
+        {
+            "m15_rsi7": [18.0, 18.0, 18.0, 18.0],
+            "m15_close": [87.0, 87.0, 87.0, 87.0],
+            "m15_bb_mid": [100.0, 100.0, 100.0, 100.0],
+            "m15_bb_upper": [110.0, 110.0, 110.0, 110.0],
+        },
+        index=idx,
+    )
+    assert in_skip_session(idx).tolist() == [False, True, True, False]
+    raw = evaluate_rsi_bb(feat, "BTCUSDT", skip_bj_session=False)["bias"].tolist()
+    assert raw == [1, 1, 1, 1]
+    skipped = evaluate_rsi_bb(feat, "BTCUSDT", skip_bj_session=True)["bias"].tolist()
+    assert skipped == [1, 0, 0, 1]
+
+
 def test_detect_is_aligns_replay_constants():
     """有本地 1m 时，检测脚本 IS 必须打到冻结回放的 N/胜率。"""
     from pathlib import Path as P
@@ -282,7 +306,7 @@ def test_detect_is_aligns_replay_constants():
 
     if not (P("data/BTCUSDT/1m/2023-01.parquet")).exists():
         pytest.skip("无月度 1m 数据")
-    trades = scan_all()
+    trades = scan_all(skip_bj_session=False)
     errs = check_align(trades, P("output/trades.csv"))
     assert errs == [], errs
     from detect import is_stats

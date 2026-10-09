@@ -1,6 +1,7 @@
 """
 RSI_BB 扫描：回放与信号检测共用，避免两套逻辑漂移。
 冻结参数：RSI(7) 20/80 + 布林 k=2.2；事件合约无资金费，不跳过资金费窗口。
+默认跳过北京 20:00–23:00（UTC 12:00–15:00）；对齐冻结 IS 时传 skip_bj_session=False。
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ def scan_rsi_bb(
     feat: pd.DataFrame | None = None,
     close_1m: pd.Series | None = None,
     ignore_funding: bool = True,
+    skip_bj_session: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     与 backtest 中 RSI_BB 路径相同：特征 → 规则 → 持仓门控 → T+30 结算。
@@ -27,7 +29,12 @@ def scan_rsi_bb(
         feat = build_feature_frame(df_1m)
     if close_1m is None:
         close_1m = to_close_index(df_1m)["close"]
-    sig = evaluate_rsi_bb(feat, symbol, ignore_funding=ignore_funding)
+    sig = evaluate_rsi_bb(
+        feat,
+        symbol,
+        ignore_funding=ignore_funding,
+        skip_bj_session=skip_bj_session,
+    )
     taken = apply_position_gate(sig["bias"].to_numpy(), sig.index)
     filled = settle_trades(sig, close_1m, taken)
     filled["strategy"] = STRATEGY_NAME

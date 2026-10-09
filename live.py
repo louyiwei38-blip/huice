@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-from copybot import copybot_amount, copybot_enabled, get_client, place_for_signal
+from copybot import copybot_amount, copybot_enabled, copybot_token, get_client, place_for_signal
 from download import SYMBOLS, fetch_recent_1m
 from rsi_bb import scan_rsi_bb
 from strategy import (
@@ -32,6 +32,7 @@ from strategy import (
     RSI_BB_OB,
     RSI_BB_OS,
     RSI_BB_PERIOD,
+    SKIP_SESSION_BJ_LABEL,
 )
 from tg import html_escape, send_telegram
 
@@ -259,6 +260,26 @@ def _in_range(ts_iso: str | None, start: datetime, end: datetime) -> bool:
     return start <= t < end
 
 
+def trade_amount(rec: dict[str, Any] | None = None) -> float:
+    """该笔名义下单金额（U）。优先用跟单回执里的 orderAmount，否则用环境默认。"""
+    if isinstance(rec, dict):
+        cb = rec.get("copybot")
+        if isinstance(cb, dict):
+            raw = (cb.get("payload") or {}).get("orderAmount")
+            if raw is not None and str(raw).strip() != "":
+                try:
+                    return float(raw)
+                except (TypeError, ValueError):
+                    pass
+    return float(copybot_amount())
+
+
+def unit_to_usdt(unit_pnl: float | None, amount: float) -> float | None:
+    if unit_pnl is None:
+        return None
+    return float(unit_pnl) * float(amount)
+
+
 def book_stats(ledger: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
     now = now or datetime.now(timezone.utc)
     day0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -275,8 +296,17 @@ def book_stats(ledger: dict[str, Any], now: datetime | None = None) -> dict[str,
     def _agg(rows: list[dict[str, Any]]) -> dict[str, Any]:
         n = len(rows)
         if n == 0:
-            return {"N": 0, "win_rate": None, "EV": None, "pnl_sum": 0.0, "maxLL": 0}
+            return {
+                "N": 0,
+                "win_rate": None,
+                "EV": None,
+                "pnl_sum": 0.0,
+                "EV_usdt": None,
+                "pnl_usdt": 0.0,
+                "maxLL": 0,
+            }
         pnls = [float(r["pnl"]) for r in rows]
+        usdts = [float(r["pnl"]) * trade_amount(r) for r in rows]
         streak = best = 0
         for x in pnls:
             if x < 0:
@@ -290,6 +320,8 @@ def book_stats(ledger: dict[str, Any], now: datetime | None = None) -> dict[str,
             "win_rate": wins / n,
             "EV": sum(pnls) / n,
             "pnl_sum": float(sum(pnls)),
+            "EV_usdt": float(sum(usdts) / n),
+            "pnl_usdt": float(sum(usdts)),
             "maxLL": int(best),
         }
 
@@ -304,6 +336,7 @@ def book_stats(ledger: dict[str, Any], now: datetime | None = None) -> dict[str,
         "month": _agg([r for r in closed if _in_range(r.get("settle_time"), month0, now + timedelta(days=1))]),
         "by_symbol": by_sym,
         "open": opens,
+        "amount_default": trade_amount(),
     }
 
 
@@ -318,6 +351,11 @@ def _fmt_pnl(x: float | None) -> str:
         return "n/a"
     return f"{x:+.2f}"
 
+
+def _fmt_usdt(x: float | None) -> str:
+    if x is None:
+        return "n/a"
+    return f"{x:+.2f}U"
 
 def _side(bias: int) -> str:
     if bias > 0:
@@ -338,15 +376,15 @@ def _side_emoji(bias: int) -> str:
 def format_stats_block(st: dict[str, Any]) -> str:
     a, d, m = st["all"], st["today"], st["month"]
     lines = [
-        f"账本  N={a['N']}  胜率={_fmt_pct(a['win_rate'])}  EV={_fmt_pnl(a['EV'])}  累计={_fmt_pnl(a['pnl_sum'])}  最长连亏={a['maxLL']}",
-        f"今日  N={d['N']}  胜率={_fmt_pct(d['win_rate'])}  累计={_fmt_pnl(d['pnl_sum'])}",
-        f"本月  N={m['N']}  胜率={_fmt_pct(m['win_rate'])}  累计={_fmt_pnl(m['pnl_sum'])}",
+        f"账本  N={a['N']}  胜率={_fmt_pct(a['win_rate'])}  EV={_fmt_usdt(a.get('EV_usdt'))}  累计={_fmt_usdt(a.get('pnl_usdt'))}  最长连亏={a['maxLL']}",
+        f"今日  N={d['N']}  胜率={_fmt_pct(d['win_rate'])}  累计={_fmt_usdt(d.get('pnl_usdt'))}",
+        f"本月  N={m['N']}  胜率={_fmt_pct(m['win_rate'])}  累计={_fmt_usdt(m.get('pnl_usdt'))}",
     ]
     for sym, s in st["by_symbol"].items():
         if s["N"] == 0:
             continue
         lines.append(
-            f"{html_escape(sym)}  N={s['N']}  胜率={_fmt_pct(s['win_rate'])}  累计={_fmt_pnl(s['pnl_sum'])}"
+            f"{html_escape(sym)}  N={s['N']}  胜率={_fmt_pct(s['win_rate'])}  累计={_fmt_usdt(s.get('pnl_usdt'))}"
         )
     if st["open"]:
         bits = []
@@ -387,23 +425,26 @@ def format_entry(rec: dict[str, Any]) -> str:
         f"入场 {_iso(rec['timestamp'])}  @{entry_s}\n"
         f"RSI({RSI_BB_PERIOD})={rsi_s}  轨={track_s}\n"
         f"结算 {_iso(rec.get('settle_time'))}\n"
-        f"规则 RSI {RSI_BB_OS:.0f}/{RSI_BB_OB:.0f} k={RSI_BB_K}  持仓 {HOLD_MINUTES}min"
+        f"规则 RSI {RSI_BB_OS:.0f}/{RSI_BB_OB:.0f} k={RSI_BB_K}  持仓 {HOLD_MINUTES}min\n"
+        f"跳过 {SKIP_SESSION_BJ_LABEL}"
         f"{extra}"
     )
 
 
 def format_settle(rec: dict[str, Any], st: dict[str, Any]) -> str:
     pnl = rec.get("pnl")
+    amt = trade_amount(rec)
+    usdt = unit_to_usdt(float(pnl), amt) if pnl is not None else None
     if rec.get("void"):
         head = "⚠️ <b>结算作废</b>（缺 1m）"
     elif pnl is None:
         head = "⚠️ <b>结算未知</b>"
     elif pnl > 0:
-        head = f"✅ <b>WIN {_fmt_pnl(pnl)}</b>"
+        head = f"✅ <b>WIN {_fmt_usdt(usdt)}</b> ({_fmt_pnl(pnl)} × {amt:g}U)"
     elif pnl < 0:
-        head = f"❌ <b>LOSS {_fmt_pnl(pnl)}</b>"
+        head = f"❌ <b>LOSS {_fmt_usdt(usdt)}</b> ({_fmt_pnl(pnl)} × {amt:g}U)"
     else:
-        head = "➖ <b>TIE 0.00</b>"
+        head = f"➖ <b>TIE {_fmt_usdt(0.0)}</b>"
     entry_s = f"{rec['entry']:.2f}" if rec.get("entry") is not None else "n/a"
     settle_s = f"{rec['settle']:.2f}" if rec.get("settle") is not None else "n/a"
     return (
@@ -458,7 +499,12 @@ def maybe_daily(ledger: dict[str, Any], now: datetime) -> tuple[str | None, str]
     n = len(pnls)
     wr = (sum(1 for x in pnls if x > 0) / n) if n else None
     ev = (sum(pnls) / n) if n else None
-    extra = f"昨日结算  N={n}  胜率={_fmt_pct(wr)}  EV={_fmt_pnl(ev)}  累计={_fmt_pnl(sum(pnls) if n else 0.0)}"
+    usdt_sum = sum(float(r["pnl"]) * trade_amount(r) for r in y_closed) if n else 0.0
+    ev_u = (usdt_sum / n) if n else None
+    extra = (
+        f"昨日结算  N={n}  胜率={_fmt_pct(wr)}  EV={_fmt_usdt(ev_u)}  "
+        f"累计={_fmt_usdt(usdt_sum)}（单位EV={_fmt_pnl(ev)}）"
+    )
     return format_daily(st, prev) + "\n" + extra, today
 
 
@@ -544,7 +590,8 @@ def run_loop(*, dry_run: bool = False, lookback_minutes: int | None = None) -> N
     signal.signal(signal.SIGINT, _stop)
     signal.signal(signal.SIGTERM, _stop)
     log(
-        f"RSI_BB 实盘循环  RSI({RSI_BB_PERIOD}) {RSI_BB_OS:.0f}/{RSI_BB_OB:.0f} k={RSI_BB_K}"
+        f"RSI_BB 实盘循环  RSI({RSI_BB_PERIOD}) {RSI_BB_OS:.0f}/{RSI_BB_OB:.0f} k={RSI_BB_K}  "
+        f"跳过{SKIP_SESSION_BJ_LABEL}"
     )
     run_once(dry_run=dry_run, lookback_minutes=lookback_minutes)
     while not stop["flag"]:
@@ -568,7 +615,7 @@ def main() -> None:
     ap.add_argument("--once", action="store_true", help="扫一轮后退出")
     ap.add_argument("--loop", action="store_true", help="按 5m 收盘循环")
     ap.add_argument("--test", action="store_true", help="发送一条连通测试")
-    ap.add_argument("--test-copybot", action="store_true", help="登录跟单面板并打印带单账户，不下单")
+    ap.add_argument("--test-copybot", action="store_true", help="检查跟单 webhook 配置，不下单")
     ap.add_argument("--stats", action="store_true", help="只推送当前账本统计")
     ap.add_argument("--dry-run", action="store_true", help="打印消息，不调用 Telegram / 不下真实单")
     ap.add_argument("--lookback", type=int, default=None, help="REST 回看分钟数（默认：首次 7 天，之后 36 小时）")
@@ -576,19 +623,23 @@ def main() -> None:
 
     if args.test:
         send_telegram(
-            f"RSI_BB 连通测试\n规则 RSI({RSI_BB_PERIOD}) {RSI_BB_OS:.0f}/{RSI_BB_OB:.0f} k={RSI_BB_K}",
+            f"RSI_BB 连通测试\n规则 RSI({RSI_BB_PERIOD}) {RSI_BB_OS:.0f}/{RSI_BB_OB:.0f} k={RSI_BB_K}\n"
+            f"跳过 {SKIP_SESSION_BJ_LABEL}",
             dry_run=args.dry_run,
         )
         log("测试消息已处理。")
         return
     if args.test_copybot:
         bot = get_client()
-        user = bot.login()
-        leader = bot.ensure_ready()
+        token = copybot_token()
+        token_s = f"{token[:6]}…{token[-4:]}" if len(token) >= 12 else ("已配置" if token else "空")
+        try:
+            status = bot.ping()
+        except Exception as exc:  # noqa: BLE001
+            status = f"失败 {exc}"
         log(
-            f"跟单面板登录成功 user={user.get('username') or user.get('name') or user.get('type')} "
-            f"leader={leader.get('name')} id={leader.get('id')} auth={leader.get('authStatus')} "
-            f"amount={copybot_amount()} enabled={copybot_enabled()}"
+            f"跟单 webhook url={bot.webhook_url()} token={token_s} "
+            f"amount={copybot_amount()} enabled={copybot_enabled()} ping={status}"
         )
         return
     if args.stats:
