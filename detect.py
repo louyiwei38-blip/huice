@@ -167,7 +167,7 @@ def main() -> None:
         print_latest(trades, filled_map)
         return
 
-    # --align 校验冻结指标本身，不叠加时段过滤；日常检测/实盘默认跳过北京 20–23
+    # --align 校验冻结指标本身，不叠加时段过滤；日常检测/实盘默认跳过周一至周五北京 20–23
     trades = scan_all(skip_bj_session=not args.align)
     trades_out = trades.loc[_in_is(trades["timestamp"])].copy() if args.is_only else trades
 

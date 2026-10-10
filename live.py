@@ -3,7 +3,7 @@ RSI_BB 实盘：扫最近已收盘 5m，开仓/结算推 Telegram，并记盈亏
 阈值与回放相同：RSI(7) 20/80、布林 k=2.2；不跳过资金费窗口。禁止改参。
 
   python live.py --test          # 测 Telegram
-  python live.py --test-copybot  # 登录跟单面板（不下单）
+  python live.py --test-copybot  # 检查 webhook 配置（不下单）
   python live.py --once          # 扫一轮（适合 cron）
   python live.py --loop          # 对齐 5m 收盘循环：推送 + 自动下单
   python live.py --stats         # 只推/打印账本

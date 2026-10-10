@@ -35,9 +35,10 @@ RSI_BB_PERIOD = 7
 RSI_BB_OS = 20.0
 RSI_BB_OB = 80.0
 RSI_BB_K = 2.2
-# 实盘时段：北京 [20:00, 23:00) 不开仓 = UTC [12:00, 15:00)
+# 实盘时段：周一至周五北京 [20:00, 23:00) 不开仓 = UTC [12:00, 15:00)；周六日不跳过
 SKIP_SESSION_UTC_HOURS = frozenset({12, 13, 14})
-SKIP_SESSION_BJ_LABEL = "北京 20:00–23:00（UTC 12:00–15:00）"
+SKIP_SESSION_WEEKDAYS = frozenset({0, 1, 2, 3, 4})  # Mon–Fri（与北京同日，UTC+8）
+SKIP_SESSION_BJ_LABEL = "周一至周五北京 20:00–23:00（UTC 12:00–15:00；周末不跳过）"
 
 SYMBOL_ATR_PCT = {"BTCUSDT": ATR_PCT_BTC, "ETHUSDT": ATR_PCT_ETH}
 
@@ -56,9 +57,11 @@ def in_funding_window(index: pd.DatetimeIndex) -> np.ndarray:
 
 
 def in_skip_session(index: pd.DatetimeIndex) -> np.ndarray:
-    """北京 [20:00, 23:00) = UTC 小时 12/13/14 不开仓。"""
+    """周一至周五北京 [20:00, 23:00) = UTC 12/13/14 不开仓；周六日该时段仍可开。"""
     idx = index.tz_convert("UTC") if index.tz is not None else index.tz_localize("UTC")
-    return np.isin(idx.hour, list(SKIP_SESSION_UTC_HOURS))
+    in_hours = np.isin(idx.hour, list(SKIP_SESSION_UTC_HOURS))
+    weekday = np.asarray(idx.dayofweek)
+    return in_hours & np.isin(weekday, list(SKIP_SESSION_WEEKDAYS))
 
 
 def merge_ab_bias(bias_a: np.ndarray, bias_b: np.ndarray) -> np.ndarray:
@@ -290,7 +293,7 @@ def evaluate_rsi_bb(
     做空：RSI >= ob 且 close >= 上轨
     布林中轨为 SMA(20)；上/下轨 = 中轨 ± k * 标准差(ddof=0)。
     默认参数为 IS 冻结值；搜索时传入网格参数。
-    skip_bj_session=True 时跳过北京 20:00–23:00（实盘默认在 scan_rsi_bb 打开）。
+    skip_bj_session=True 时跳过周一至周五北京 20:00–23:00（周末不跳；实盘默认在 scan_rsi_bb 打开）。
     """
     rsi_period = RSI_BB_PERIOD if rsi_period is None else rsi_period
     rsi_os = RSI_BB_OS if rsi_os is None else rsi_os

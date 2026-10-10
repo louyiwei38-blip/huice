@@ -1,7 +1,7 @@
 """
 RSI_BB 扫描：回放与信号检测共用，避免两套逻辑漂移。
 冻结参数：RSI(7) 20/80 + 布林 k=2.2；事件合约无资金费，不跳过资金费窗口。
-默认跳过北京 20:00–23:00（UTC 12:00–15:00）；对齐冻结 IS 时传 skip_bj_session=False。
+默认跳过周一至周五北京 20:00–23:00（UTC 12:00–15:00，周末不跳）；对齐冻结 IS 时传 skip_bj_session=False。
 """
 from __future__ import annotations
 

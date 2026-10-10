@@ -275,9 +275,10 @@ def test_rsi_bb_does_not_skip_funding_window():
 
 
 def test_rsi_bb_skips_beijing_20_23():
-    """北京 20:00–23:00（UTC 12–15）在 skip_bj_session=True 时不开仓。"""
+    """周一至周五北京 20:00–23:00（UTC 12–15）在 skip_bj_session=True 时不开仓。"""
     from strategy import in_skip_session
 
+    # 2024-01-02 是周二
     idx = pd.DatetimeIndex(
         ["2024-01-02 11:55:00", "2024-01-02 12:00:00", "2024-01-02 14:55:00", "2024-01-02 15:00:00"],
         tz="UTC",
@@ -296,6 +297,28 @@ def test_rsi_bb_skips_beijing_20_23():
     assert raw == [1, 1, 1, 1]
     skipped = evaluate_rsi_bb(feat, "BTCUSDT", skip_bj_session=True)["bias"].tolist()
     assert skipped == [1, 0, 0, 1]
+
+
+def test_rsi_bb_weekend_does_not_skip_beijing_20_23():
+    """周六日北京 20:00–23:00 仍可开仓。"""
+    from strategy import in_skip_session
+
+    # 2024-01-06 周六、2024-01-07 周日
+    idx = pd.DatetimeIndex(
+        ["2024-01-06 12:00:00", "2024-01-06 14:55:00", "2024-01-07 12:05:00", "2024-01-07 15:00:00"],
+        tz="UTC",
+    )
+    feat = pd.DataFrame(
+        {
+            "m15_rsi7": [18.0, 18.0, 18.0, 18.0],
+            "m15_close": [87.0, 87.0, 87.0, 87.0],
+            "m15_bb_mid": [100.0, 100.0, 100.0, 100.0],
+            "m15_bb_upper": [110.0, 110.0, 110.0, 110.0],
+        },
+        index=idx,
+    )
+    assert in_skip_session(idx).tolist() == [False, False, False, False]
+    assert evaluate_rsi_bb(feat, "BTCUSDT", skip_bj_session=True)["bias"].tolist() == [1, 1, 1, 1]
 
 
 def test_detect_is_aligns_replay_constants():
